@@ -172,6 +172,13 @@ label input {
 }
 .date-inputs > span {
   color: var(--muted-foreground);
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  height: 32px;
+}
+.date-inputs {
+  flex-wrap: nowrap;
 }
 /* Dual date-range layout. Slider geometry and states below translate the
    official shadcn/ui Nova theme (4px track, 12px thumb, 3px focus ring). */
@@ -304,7 +311,7 @@ label input {
 }
 #chart {
   width: 100%;
-  height: 320px;
+  height: 400px;
   display: block;
 }
 .grid {
@@ -335,10 +342,18 @@ label input {
   font-size: 12px;
   box-shadow: 0 8px 32px #0003;
 }
+.tip-header,
 .tip-row {
   display: flex;
   justify-content: space-between;
   gap: 24px;
+}
+.tip-header > strong:last-child {
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+}
+.tip-row {
   margin-top: 7px;
 }
 .tip-row > span:first-child {
@@ -523,7 +538,7 @@ summary {
   }
   .date-inputs {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
   }
   .date-inputs label {
     flex-direction: column;
@@ -1040,7 +1055,7 @@ header {
 .filters { padding-bottom: 20px; border-bottom: 1px solid var(--line); }
 .filters .filter-line:first-child { gap: 8px; }
 .filter-line + .filter-line { border: 0; padding-top: 0; margin-top: 16px; }
-.range-panel { padding: 22px 0 20px; }
+.range-panel { padding: 16px 0 20px; }
 #status { font-size: 12px; padding: 12px 0; }
 .sr-only {
   position: absolute;
@@ -1133,8 +1148,13 @@ header {
 .race-scrubber { display: flex; align-items: center; padding: 0 4px; }
 .race-playback .combobox { width: 72px !important; }
 .race-playback .select-field { flex-shrink: 0; }
-.date-field { display: grid; gap: 6px; font-size: 12px; color: var(--muted-foreground); }
+.date-field { position: relative; display: grid; font-size: 12px; color: var(--muted-foreground); }
 .date-trigger.btn { min-width: 132px; justify-content: space-between; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) {
+  .date-inputs .select-field,
+  .date-inputs .date-field { min-width: 0; }
+  .date-inputs .date-trigger.btn { min-width: 0; width: 100%; }
+}
 .date-popover {
   position: fixed;
   inset: auto;

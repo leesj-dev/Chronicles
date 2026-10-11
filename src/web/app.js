@@ -10,6 +10,7 @@ import {
   formatAverage,
   daysBetween,
   percentage,
+  compact,
   exact,
   modelName,
   modelColor,
@@ -145,7 +146,7 @@ function customSelect(id, label, choices, hideLabel = false) {
 }
 function calendarDatePicker(id, label) {
   const original = $(id), field = original.closest("label"),
-    wrapper = el("div", "date-field"), labelEl = el("span", "field-label", label),
+    wrapper = el("div", "date-field"), labelEl = el("span", "sr-only", label),
     trigger = el("button", "btn date-trigger"), valueEl = el("span"),
     popup = el("div", "date-popover"), cal = el("div", "calendar");
   labelEl.id = id + "-label";
@@ -458,24 +459,25 @@ function drawDaily() {
     w = Math.max(280, chart.clientWidth),
     left = 76,
     top = 16,
-    height = 236,
+    height = 320,
     width = w - left - 16,
     step = width / daily.size,
-    max = Math.max(
+    axis = rankingAxis(Math.max(
       1,
       ...[...daily.values()].map((m) =>
         [...m.values()].reduce((s, v) => s + v, 0),
       ),
-    );
-  chart.setAttribute("viewBox", `0 0 ${w} 320`);
-  for (let i = 0; i <= 4; i++) {
-    const y = top + height - (i * height) / 4;
+    )),
+    max = axis.maximum;
+  chart.setAttribute("viewBox", `0 0 ${w} ${top + height + 40}`);
+  for (const value of axis.ticks) {
+    const y = top + height - (value / max) * height;
     chart.append(
       svgNode("line", { x1: left, x2: w - 16, y1: y, y2: y, class: "grid" }),
       svgNode(
         "text",
         { x: left - 10, y: y + 4, "text-anchor": "end", class: "axis" },
-        formatMetric((max * i) / 4, metric),
+        compact(value),
       ),
     );
   }
@@ -527,7 +529,7 @@ function drawDaily() {
           "text",
           {
             x: left + (i + 0.5) * step,
-            y: 278,
+            y: top + height + 26,
             "text-anchor": "middle",
             class: "axis",
           },
@@ -536,17 +538,13 @@ function drawDaily() {
       );
     i++;
   }
-  chart.append(
-    svgNode(
-      "text",
-      { x: left, y: 306, class: "axis" },
-      METRICS[metric] + " · " + (data.timezone || "UTC"),
-    ),
-  );
 }
 function showTooltip(date, counts, event) {
-  const tip = $("tooltip");
-  tip.replaceChildren(el("strong", "", date));
+  const tip = $("tooltip"),
+    total = [...counts.values()].reduce((sum, value) => sum + value, 0),
+    header = el("div", "tip-header");
+  header.append(el("strong", "", date), el("strong", "", formatMetric(total, metric)));
+  tip.replaceChildren(header);
   for (const [model, value] of [...counts].sort((a, b) => b[1] - a[1]))
     if (value) {
       const row = el("div", "tip-row"),
