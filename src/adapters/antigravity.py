@@ -1,8 +1,62 @@
 import json
 import sqlite3
+import shutil
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from .base import ScanResult, event_id
+
+
+@contextmanager
+def read_database(path):
+    """Read WAL databases even when source sidecars cannot be created."""
+    connection = None
+    try:
+        connection = sqlite3.connect(path.as_uri()+'?mode=ro', uri=True)
+        connection.execute('SELECT name FROM sqlite_master LIMIT 1').fetchall()
+    except sqlite3.Error as error:
+        if connection is not None:
+            connection.close()
+            connection = None
+        if not isinstance(error, sqlite3.OperationalError) or (getattr(error, 'sqlite_errorcode', 0) & 255) != sqlite3.SQLITE_CANTOPEN:
+            raise
+        with path.open('rb') as source:
+            header = source.read(20)
+        if header[:16] != b'SQLite format 3\x00' or header[18:20] != b'\x02\x02':
+            raise
+    else:
+        try:
+            yield connection
+        finally:
+            connection.close()
+        return
+
+    def signature():
+        result = []
+        for suffix in ('', '-wal'):
+            source = Path(str(path)+suffix)
+            try:
+                stat = source.stat()
+                result.append((stat.st_ino, stat.st_size, stat.st_mtime_ns))
+            except FileNotFoundError:
+                result.append(None)
+        return tuple(result)
+
+    with tempfile.TemporaryDirectory(prefix='chronicles-antigravity-') as directory:
+        snapshot = Path(directory)/path.name
+        before = signature()
+        shutil.copyfile(path, snapshot)
+        if before[1] is not None:
+            shutil.copyfile(Path(str(path)+'-wal'), Path(str(snapshot)+'-wal'))
+        if signature() != before:
+            raise sqlite3.OperationalError('Antigravity database changed while copying; retry scan')
+        # Preserve pending WAL records; SQLite creates its own SHM in this folder.
+        connection = sqlite3.connect(snapshot.as_uri()+'?mode=ro', uri=True)
+        try:
+            yield connection
+        finally:
+            connection.close()
 
 
 def protobuf(blob):
@@ -86,8 +140,7 @@ class AntigravityAdapter:
                     if path not in self.cache or self.cache[path][0] != signature:
                         parsed = []
                         bad = 0
-                        connection = sqlite3.connect(path.as_uri()+'?mode=ro', uri=True)
-                        try:
+                        with read_database(path) as connection:
                             tables={r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                             if 'gen_metadata' not in tables:
                                 self.cache[path]=(signature, [], 0)
@@ -103,8 +156,6 @@ class AntigravityAdapter:
                                 except (ValueError, TypeError, UnicodeError, OverflowError):
                                     bad += 1
                             bad += connection.execute('SELECT count(*) FROM gen_metadata WHERE length(data)>33554432').fetchone()[0]
-                        finally:
-                            connection.close()
                         self.cache[path]=(signature, parsed, bad)
                     events.extend(self.cache[path][1])
                     if self.cache[path][2]:errors.append(f'Antigravity: {self.cache[path][2]} generation records skipped')

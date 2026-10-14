@@ -1,8 +1,47 @@
 """Codex and Claude JSONL adapters, with independent per-harness caches."""
 import json
 import os
+import shutil
+import subprocess
+from contextlib import contextmanager
+from io import TextIOWrapper
+from itertools import chain
 from pathlib import Path
 from .base import ScanResult, day, number
+
+try:
+    from compression import zstd
+except ImportError:
+    zstd = None  # Python <3.14: use the optional zstd executable.
+
+
+@contextmanager
+def open_log(path):
+    """Stream Codex's compressed rollouts without changing provider files."""
+    if path.suffix != '.zst':
+        with path.open(encoding='utf-8') as stream:
+            yield stream
+    elif zstd is not None:
+        try:
+            with zstd.open(path, 'rt', encoding='utf-8') as stream:
+                yield stream
+        except (zstd.ZstdError, EOFError) as error:
+            raise OSError('Compressed Codex history could not be decoded') from error
+    else:
+        executable = shutil.which('zstd')
+        if not executable:
+            raise OSError('Compressed Codex history requires Python 3.14+ or zstd')
+        process = subprocess.Popen([executable, '-dc', '--', str(path)], stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL)
+        try:
+            with TextIOWrapper(process.stdout, encoding='utf-8') as stream:
+                yield stream
+            if process.wait() != 0:
+                raise OSError('Compressed Codex history could not be decoded')
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            process.wait()
 
 
 def parse_log(path, provider):
@@ -10,7 +49,7 @@ def parse_log(path, provider):
     model = 'unknown'
     previous = None
     skipped = 0
-    with path.open(encoding='utf-8') as stream:
+    with open_log(path) as stream:
         for line in stream:
             try:
                 record = json.loads(line)
@@ -83,7 +122,10 @@ class JsonlAdapter:
         active = set()
         for root in self.roots:
             if not root.exists(): continue
-            for path in root.rglob('*.jsonl'):
+            paths = root.rglob('*.jsonl')
+            if self.provider == 'codex':
+                paths = chain(paths, root.rglob('*.jsonl.zst'))
+            for path in paths:
                 try:
                     resolved = path.resolve()
                     active.add(resolved)
@@ -96,7 +138,8 @@ class JsonlAdapter:
                     result.skipped += bad
                     result.events.extend((key, self.provider, date, model, values) for key, date, model, values in events)
                 except (OSError, UnicodeError) as error:
-                    result.errors.append(f'{self.provider}: {type(error).__name__}')
+                    message = str(error) if path.suffix == '.zst' else type(error).__name__
+                    result.errors.append(f'{self.provider}: {message}')
         self.cache = {p: value for p, value in self.cache.items() if p in active}
         result.files = len(active)
         return result
