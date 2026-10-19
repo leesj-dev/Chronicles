@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from adapters import create_adapters
-from adapters.base import KST, day, number, event_id
+from adapters.base import KST, day, number, event_id, timestamp as parse_timestamp
 from adapters.limits import OpenUsageBridge
 
 from paths import ROOT, SRC
@@ -26,6 +26,7 @@ class Collector:
     def collect(self):
         with self.lock:
             unique = {}
+            instants = {}
             errors = []
             skipped = files = 0
             missing_records, legacy_ids = [], set()
@@ -40,13 +41,17 @@ class Collector:
                     date = day(timestamp)
                     if not date: continue
                     key = event_id(key)
+                    try:
+                        instants.setdefault(key, parse_timestamp(timestamp))
+                    except (ValueError, TypeError, OverflowError):
+                        pass
                     existing = unique.get(key)
                     if existing is None:
                         unique[key] = (provider, date, model, values.copy())
                     else:
                         for metric, value in values.items():
                             existing[3][metric] = max(existing[3].get(metric, 0), value)
-            self.local_events = [dict(id=k, provider=p, date=d, model=m, **v) for k,(p,d,m,v) in unique.items()]
+            self.local_events = [dict(id=k, provider=p, date=d, timestamp=instants.get(k), model=m, **v) for k,(p,d,m,v) in unique.items()]
             devices = {k: {'this-mac'} for k in unique}
             imported_at = None
             self.local_missing = [dict(r, date=day(r['timestamp']), device='this-mac') for r in missing_records if day(r['timestamp'])]
@@ -63,30 +68,62 @@ class Collector:
                         else:missing[r['id']]=dict(r,device='macmini')
                     for event in imported['events']:
                         k = event['id']
+                        instant = None
+                        try:
+                            if event.get('timestamp'):
+                                instant = parse_timestamp(event['timestamp'])
+                        except (ValueError, TypeError, OverflowError):
+                            pass
+                        if instant:
+                            instants.setdefault(k, instant)
                         values = {f:number(event.get(f)) for f in ['input','output','cacheRead','cacheWrite','rounds','roundRecords']}
                         if k in unique:
                             for field,value in values.items():
                                 unique[k][3][field] = max(unique[k][3].get(field,0),value)
                             devices[k].add('macmini')
                         else:
-                            unique[k]=(event['provider'],event['date'],event['model'],values)
+                            unique[k]=(event['provider'],day(instant) if instant else event['date'],event['model'],values)
                             devices[k]={'macmini'}
                 except (OSError, ValueError, KeyError, TypeError):
                     errors.append('SSH import could not be read')
             missing = {k:v for k,v in missing.items() if k not in unique}
             rows = defaultdict(lambda: dict(input=0, output=0, cacheRead=0, cacheWrite=0, requests=0, rounds=0, roundRecords=0))
+            hourly = defaultdict(lambda: dict(input=0, output=0, cacheRead=0, cacheWrite=0, requests=0, rounds=0, roundRecords=0))
             for event_key,(provider, date, model, values) in unique.items():
+                instant = instants.get(event_key)
+                local = datetime.fromisoformat(instant).astimezone(KST) if instant else None
+                if local:
+                    date = local.date().isoformat()
+                # Offset distinguishes repeated hours when daylight saving ends.
+                hour = local.replace(minute=0, second=0, microsecond=0).isoformat() if local else None
                 device = 'shared' if len(devices[event_key])>1 else next(iter(devices[event_key]))
-                row = rows[(provider, date, model, device)]
-                for metric, value in values.items():
-                    row[metric] += value
-                row['requests'] += 1
+                for row in [rows[(provider, date, model, device)], hourly[(provider, date, model, device, hour)]]:
+                    for metric, value in values.items():
+                        row[metric] += value
+                    row['requests'] += 1
             data = [dict(provider=p, date=d, model=m, device=device, **v, total=v['input'] + v['output'] + v['cacheRead'] + v['cacheWrite']) for (p, d, m, device), v in sorted(rows.items())]
-            return dict(accountSnapshots=self.bridge.collect() if self.bridge else [], rows=data, missing=list(missing.values()), legacyAntigravity=len(legacy_ids), timezone=str(KST), updatedAt=datetime.now(timezone.utc).isoformat(), files=files, importedAt=imported_at, localEvents=len(self.local_events), remoteEvents=sum('macmini' in v for v in devices.values()), events=len(unique), skipped=skipped, errors=sorted(set(errors)))
+            hourly_data = [dict(provider=p, date=d, model=m, device=device, hour=h, **v, total=v['input'] + v['output'] + v['cacheRead'] + v['cacheWrite']) for (p,d,m,device,h),v in sorted(hourly.items(), key=lambda item: tuple(value or '' for value in item[0]))]
+            return dict(accountSnapshots=self.bridge.collect() if self.bridge else [], rows=data, hourlyRows=hourly_data, missing=list(missing.values()), legacyAntigravity=len(legacy_ids), timezone=str(KST), updatedAt=datetime.now(timezone.utc).isoformat(), files=files, importedAt=imported_at, localEvents=len(self.local_events), remoteEvents=sum('macmini' in v for v in devices.values()), events=len(unique), skipped=skipped, errors=sorted(set(errors)))
 
 
 collector = Collector()
 DEMO = False
+
+
+def demo_report():
+    """Add fictional hourly detail without changing the demo's daily totals."""
+    report = json.loads((ROOT/'examples'/'demo.json').read_text())
+    report['hourlyRows'] = []
+    fields = ['input', 'output', 'cacheRead', 'cacheWrite', 'requests', 'rounds', 'roundRecords']
+    for row in report['rows']:
+        count = min(4, row['requests'])
+        for index in range(count):
+            values = {key: row[key] // count + int(index < row[key] % count) for key in fields if key in row}
+            values['total'] = sum(values[key] for key in fields[:4])
+            report['hourlyRows'].append(dict(row, hour=f"{row['date']}T{[8, 11, 15, 20][index]:02d}:00:00+00:00", **values))
+    for index, row in enumerate(report.get('missing', [])):
+        row['timestamp'] = f"{row['date']}T{[8, 11, 15, 20][index % 4]:02d}:30:00Z"
+    return report
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -97,12 +134,12 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split('?')[0]
         if path in ('/api/usage', '/api/demo', '/api/local'):
             try:
-                content = json.dumps(json.loads((ROOT/'examples'/'demo.json').read_text()) if path=='/api/demo' or (DEMO and path!='/api/local') else collector.collect()).encode()
+                content = json.dumps(demo_report() if path=='/api/demo' or (DEMO and path!='/api/local') else collector.collect()).encode()
             except Exception:
                 self.send_error(500, 'Usage scan failed')
                 return
             mime = 'application/json'
-        elif path in ('/', '/index.html', '/app.js', '/combobox.js', '/calendar.js', '/analytics.mjs', '/style.css', '/shadcn.css', '/favicon.svg', '/Geist.woff2'):
+        elif path in ('/', '/index.html', '/app.js', '/combobox.js', '/calendar.js', '/analytics.mjs', '/pricing.mjs', '/style.css', '/shadcn.css', '/favicon.svg', '/Geist.woff2'):
             filename = 'index.html' if path == '/' else path[1:]
             content = (SRC / 'web' / filename).read_bytes()
             mime = {'html': 'text/html', 'js': 'text/javascript', 'css': 'text/css', 'mjs':'text/javascript', 'svg':'image/svg+xml', 'woff2':'font/woff2'}[filename.rsplit('.', 1)[-1]]
@@ -127,7 +164,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     DEMO = args.demo
     if args.export:
-        report = json.loads((ROOT/'examples'/'demo.json').read_text()) if DEMO else collector.collect()
+        report = demo_report() if DEMO else collector.collect()
         page = (SRC/'web'/'index.html').read_text()
         styles = (SRC/'web'/'style.css').read_text()
         font = base64.b64encode((SRC/'web'/'Geist.woff2').read_bytes()).decode('ascii')
@@ -138,11 +175,13 @@ if __name__ == '__main__':
         page = page.replace('<script src="/combobox.js"></script>', '<script>'+combobox+'</script>')
         calendar = (SRC/'web'/'calendar.js').read_text()
         page = page.replace('<script src="/calendar.js"></script>', '<script>'+calendar+'</script>')
-        analytics = (SRC/'web'/'analytics.mjs').read_text().replace('export ', '')
+        pricing = (SRC/'web'/'pricing.mjs').read_text().replace('export ', '')
+        analytics = re.sub(r'^import .*?;\n', '', (SRC/'web'/'analytics.mjs').read_text(), count=1, flags=re.S).replace('export ', '')
+        analytics = re.sub(r'^\{formatMoney, PRICE_DATE, PRICE_SOURCES\};\n', '', analytics, flags=re.M)
         app = re.sub(r'^import .*?;\n', '', (SRC/'web'/'app.js').read_text(), count=1, flags=re.S)
         payload = json.dumps(report).replace('<', '\\u003c')
         page = re.sub(r'<link\s+rel="stylesheet"\s+href="/style.css"\s*/?>', lambda _: '<style>'+styles+'</style>', page)
-        page = page.replace('<script type="module" src="/app.js"></script>', '<script>window.CHRONICLES_DATA='+payload+';</script><script type="module">'+analytics+'\n'+app+'</script>')
+        page = page.replace('<script type="module" src="/app.js"></script>', '<script>window.CHRONICLES_DATA='+payload+';</script><script type="module">'+pricing+'\n'+analytics+'\n'+app+'</script>')
         favicon = (SRC/'web'/'favicon.svg').read_text()
         import urllib.parse
         page = page.replace('href="/"', 'href="#"')

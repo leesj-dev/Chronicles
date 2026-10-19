@@ -80,7 +80,7 @@
           <div>
             <span id="metric-caption">Requests / calls</span><strong id="total">—</strong>
           </div>
-          <div><span>Daily average</span><strong id="average">—</strong></div>
+          <div><span id="average-caption">Daily average</span><strong id="average">—</strong></div>
           <div><span>Models selected</span><strong id="model-count">—</strong></div>
         </div>
         <div class="section-title">
@@ -112,8 +112,12 @@
           </div>
         </div>
         <div id="daily-view">
+          <div class="timeline-controls">
+            <div class="tabs" aria-label="Timeline interval"><button class="toggle" id="interval-daily" aria-pressed="true">Daily</button><button class="toggle" id="interval-hourly" aria-pressed="false">Hourly</button></div>
+            <div id="hour-navigation" class="hour-navigation" hidden><button class="btn" data-variant="outline" id="previous-day" aria-label="Previous day">←</button><time id="hour-date"></time><button class="btn" data-variant="outline" id="next-day" aria-label="Next day">→</button></div>
+          </div>
           <div id="chart-wrap">
-            <svg id="chart" role="img" aria-label="Daily usage stacked by model"></svg>
+            <svg id="chart" role="group" aria-label="Daily usage stacked by model"></svg>
             <div id="tooltip" hidden></div>
           </div>
           <p id="chart-empty" hidden></p>
@@ -169,6 +173,8 @@
         records preserved on your devices, not billing or a complete account
         history.
       </p>
+      <h3>API-equivalent cost (USD)</h3>
+      <p>API-equivalent estimate at published standard, short-context text-token rates. Not subscription spending or a bill. Excludes long-context premiums, fast/batch modes, tools, media, tax and cache storage. Cache writes use the default 5-minute rate where supported. Older records use this same price snapshot, not historical rates. Third-party hosting may have different prices.</p><p>Haiku 5.5 uses its ≤100k prompt base rate. Gemini 4 Argon uses the introductory rate through 2026-11-30; Gemini 3.8 Flash through 2026-12-31. DeepSeek uses peak rates as a consistent comparison. Meta models use Together AI reference rates; unlisted hosting variants remain unpriced.</p><p>History labels Gemini 3.8 Flash N, Gemini 3 Flash A and Opus 4.6 Thinking use their base model’s API-equivalent rates; original model labels are preserved.</p><p id="price-sources"></p>
     </details>
   </main>
 </body>

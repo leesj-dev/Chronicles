@@ -8,6 +8,11 @@ import {
   rankingAxis,
   formatMetric,
   formatAverage,
+  formatMoney,
+  PRICE_DATE,
+  PRICE_SOURCES,
+  timelineBuckets,
+  hourlyBuckets,
   daysBetween,
   percentage,
   compact,
@@ -49,6 +54,17 @@ let data,
   device = saved.device || "all",
   start = saved.start,
   end;
+let interval = saved.interval === "hourly" ? "hourly" : "daily",
+  hourDate = saved.hourDate;
+function metricText(value, selectedMetric) {
+  return selectedMetric === "cost" ? formatMoney(value) : formatMetric(value, selectedMetric);
+}
+function averageText(value, selectedMetric) {
+  return selectedMetric === "cost" ? metricText(value, selectedMetric) : formatAverage(value, selectedMetric);
+}
+function selectedDates() {
+  return view === "daily" && interval === "hourly" ? [hourDate, hourDate] : [start, end];
+}
 let harnesses = new Set(saved.harnesses || Object.keys(HARNESSES)),
   models = new Set(saved.models || []),
   isDemo = false,
@@ -59,6 +75,7 @@ function persist() {
       "Chronicles",
       JSON.stringify({
         view,
+        interval, hourDate,
         metric,
         grouping,
         device,
@@ -235,7 +252,21 @@ const systemTheme = matchMedia("(prefers-color-scheme: dark)");
 systemTheme.addEventListener("change", () => {
   if (days.length) render();
 });
+$("price-sources").append(document.createTextNode(`Rates checked ${PRICE_DATE}: `));
+for (const [name, url] of PRICE_SOURCES) {
+  const link = el("a", "", name); link.href = url; link.target = "_blank"; link.rel = "noopener noreferrer";
+  $("price-sources").append(link, document.createTextNode(" · "));
+}
 function controls() {
+  if (start && end) hourDate = hourDate && hourDate >= start && hourDate <= end ? hourDate : end;
+  const hourly = view === "daily" && interval === "hourly";
+  $("hour-navigation").hidden = !hourly;
+  $("interval-daily").setAttribute("aria-pressed", String(!hourly));
+  $("interval-hourly").setAttribute("aria-pressed", String(hourly));
+  $("previous-day").disabled = !hourDate || hourDate <= start;
+  $("next-day").disabled = !hourDate || hourDate >= end;
+  $("hour-date").textContent = hourDate || "";
+  $("hour-date").dateTime = hourDate || "";
   $("metric").value = metric;
   $("device").value = device;
   $("grouping").value = grouping;
@@ -313,9 +344,10 @@ function render() {
   }
   controls();
   persist();
+  const [selectedStart, selectedEnd] = selectedDates();
   activeRows = filterRows(rows, {
-    start,
-    end,
+    start: selectedStart,
+    end: selectedEnd,
     harnesses,
     models,
     device,
@@ -323,15 +355,26 @@ function render() {
   });
   if (metric === "rounds")
     activeRows = activeRows.filter((r) => r.provider === "copilot");
-  const summary = summarize(activeRows, metric, start, end),
+  const summary = summarize(activeRows, metric, selectedStart, selectedEnd),
     isCount = ["requests", "rounds"].includes(metric),
-    noTokens = !isCount && summary.missing > 0 && summary.total === 0;
-  $("total").textContent = noTokens ? "Not recorded" : formatMetric(summary.total, metric);
-  $("total").title = exact(summary.total);
-  $("average").textContent = noTokens ? "—" : formatAverage(summary.average, metric);
+    noCost = metric === "cost" && summary.costMissing > 0 && summary.costMissing === summary.requests,
+    noTokens = metric !== "cost" && !isCount && summary.missing > 0 && summary.total === 0;
+  $("total").textContent = noCost ? "Unavailable" : noTokens ? "Not recorded" : metricText(summary.total, metric);
+  $("total").title = metric === "cost" ? `${summary.total.toFixed(6)} USD at ${PRICE_DATE} base rates` : exact(summary.total);
+  const hourly = view === "daily" && interval === "hourly";
+  $("average-caption").textContent = hourly ? "Hourly average" : "Daily average";
+  const unknownTime = activeRows.some(r => !r.hour);
+  const average = hourly ? summary.total / hourlyBuckets(hourDate, data.timezone || "UTC").length : summary.average;
+  $("average").textContent = noCost || noTokens || (hourly && unknownTime) ? "—" : averageText(average, metric);
   $("metric-caption").textContent = METRICS[metric];
   $("model-count").textContent = summary.models.length;
   const notes = [];
+  if (metric === "cost") {
+    const covered = summary.requests - summary.costMissing;
+    notes.push(`Estimated API-equivalent cost · ${exact(covered)} / ${exact(summary.requests)} records priced (${percentage(covered, summary.requests)}). Base rates checked ${PRICE_DATE}; excludes billing modifiers.`);
+    if (summary.costMissing) notes.push(`${exact(summary.costMissing)} records cannot be priced: missing token details or no verified rate.`);
+  }
+  if (hourly && unknownTime) notes.push("Some records have no time. They are included in the separate Unknown time bar; the hourly average is unavailable.");
   if (summary.missing)
     notes.push(
       `${exact(summary.missing)} Copilot requests have no token values. They are included in request counts, but excluded from token totals.`,
@@ -344,12 +387,12 @@ function render() {
     notes.push(
       `${data.legacyAntigravity} legacy encrypted Antigravity conversations are not included.`,
     );
-  if (!isCount && summary.missing && summary.total)
+  if (metric !== "cost" && !isCount && summary.missing && summary.total)
     notes.push("Token totals are partial.");
   $("notice").textContent = notes.join(" ");
   $("notice").hidden = !notes.length;
   $("chart-empty").hidden = summary.total > 0;
-  $("chart-empty").textContent = noTokens
+  $("chart-empty").textContent = noCost ? "No verified prices or complete token values for this selection." : metric === "cost" && summary.requests ? "The priced records have no token cost." : noTokens
     ? "Token values were not recorded for these requests. Switch to Requests / calls."
     : "No usage matches these filters. Select a harness or model, or widen the date range.";
   drawMini();
@@ -380,7 +423,7 @@ function drawMini() {
   }))
     if (metric !== "rounds" || r.provider === "copilot")
       mini[Math.floor((daysBetween(days[0], r.date) - 1) * count / days.length)] += r[metric] || 0;
-  const max = Math.max(1, ...mini);
+  const max = Math.max(metric === "cost" ? Number.EPSILON : 1, ...mini);
   chart.replaceChildren(
     ...mini.map((v) => {
       const n = el("div", "mini-bar");
@@ -390,9 +433,10 @@ function drawMini() {
   );
 }
 function renderModels() {
+  const [selectedStart, selectedEnd] = selectedDates();
   const available = filterRows(rows, {
-      start,
-      end,
+      start: selectedStart,
+      end: selectedEnd,
       harnesses,
       models: new Set(allModels),
       device,
@@ -417,14 +461,15 @@ function renderModels() {
     }
     $("models").append(group);
     const a = totals.get(name);
-    group.hidden = !a || (!a.value && !(a.missing && !["requests", "rounds"].includes(metric)));
+    group.hidden = !a || (!a.value && !(metric === "cost" ? a.requests : a.missing && !["requests", "rounds"].includes(metric)));
     button.querySelector(".model-value").textContent = a
           ? a.value
-            ? formatMetric(a.value, metric)
-            : a.missing && !["requests", "rounds"].includes(metric)
+            ? metricText(a.value, metric)
+            : metric === "cost" && a.costMissing ? "Unavailable" : a.missing && !["requests", "rounds"].includes(metric)
               ? "Not recorded"
               : "0"
           : "0";
+    button.title = metric === "cost" && a?.costMissing ? `${a.costMissing} records unpriced; displayed cost is partial.` : modelName(name);
     button.setAttribute("aria-pressed", String(models.has(name)));
     button.onclick = () => {
       models.has(name) ? models.delete(name) : models.add(name);
@@ -443,18 +488,37 @@ function svgNode(tag, attrs, text) {
   return n;
 }
 function dailyData() {
-  const map = new Map();
-  for (let d = start; d <= end; d = addDays(d, 1)) map.set(d, new Map());
-  for (const r of activeRows) {
-    const m = map.get(r.date);
-    m.set(r.model, (m.get(r.model) || 0) + (r[metric] || 0));
-  }
-  return map;
+  const [lo, hi] = selectedDates();
+  return timelineBuckets(activeRows, metric, lo, hi, data.timezone || "UTC", interval === "hourly");
+}
+function enterHours(date) {
+  hourDate = date; interval = "hourly"; render();
+  $("interval-hourly").focus({preventScroll: true});
+}
+function bucketLabel(key, full = false) {
+  if (key === "unknown") return "Unknown time";
+  if (interval !== "hourly") return full ? key : key.slice(5);
+  const label = key.slice(11,16), repeated = hourlyBuckets(hourDate, data.timezone || "UTC").filter(k => k.slice(11,16) === label).length > 1;
+  return (full ? hourDate + " " : "") + label + (repeated ? " UTC" + key.slice(-6) : "");
+}
+let chartCoverage = new Map();
+function bucketCostUnknown(key) {
+  const coverage = chartCoverage.get(key);
+  return metric === "cost" && coverage?.requests > 0 && coverage.requests === coverage.missing;
 }
 function drawDaily() {
   const chart = $("chart");
   chart.replaceChildren();
   $("tooltip").hidden = true;
+  chart.setAttribute("aria-label", interval === "hourly" ? "Hourly usage stacked by model" : "Daily usage stacked by model");
+  chartCoverage = new Map();
+  for (const row of activeRows) {
+    const key = interval === "hourly" ? row.hour || "unknown" : row.date;
+    const previous = chartCoverage.get(key) || {requests: 0, missing: 0};
+    previous.requests += row.requests;
+    previous.missing += row.costMissing;
+    chartCoverage.set(key, previous);
+  }
   const daily = dailyData(),
     w = Math.max(280, chart.clientWidth),
     left = 76,
@@ -463,11 +527,11 @@ function drawDaily() {
     width = w - left - 16,
     step = width / daily.size,
     axis = rankingAxis(Math.max(
-      1,
+      metric === "cost" ? 0.01 : 1,
       ...[...daily.values()].map((m) =>
         [...m.values()].reduce((s, v) => s + v, 0),
       ),
-    )),
+    ), metric === "cost"),
     max = axis.maximum;
   chart.setAttribute("viewBox", `0 0 ${w} ${top + height + 40}`);
   for (const value of axis.ticks) {
@@ -477,7 +541,7 @@ function drawDaily() {
       svgNode(
         "text",
         { x: left - 10, y: y + 4, "text-anchor": "end", class: "axis" },
-        compact(value),
+        metric === "cost" ? metricText(value, metric) : compact(value),
       ),
     );
   }
@@ -509,14 +573,18 @@ function drawDaily() {
       height,
       class: "day-hit",
       tabindex: 0,
-      role: "img",
+      role: interval === "daily" ? "button" : "img",
       "aria-label":
-        date +
+        bucketLabel(date, true) +
         ": " +
-        exact([...counts.values()].reduce((s, v) => s + v, 0)) +
+        (bucketCostUnknown(date) ? "Unavailable" : metricText([...counts.values()].reduce((s, v) => s + v, 0), metric)) +
         " " +
         METRICS[metric],
     });
+    if (interval === "daily") {
+      hit.onclick = () => enterHours(date);
+      hit.onkeydown = event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); enterHours(date); } };
+    }
     hit.onpointermove = (e) => showTooltip(date, counts, e);
     hit.onfocus = (e) => showTooltip(date, counts, e);
     chart.append(hit);
@@ -533,7 +601,7 @@ function drawDaily() {
             "text-anchor": "middle",
             class: "axis",
           },
-          date.slice(5),
+          bucketLabel(date),
         ),
       );
     i++;
@@ -543,16 +611,20 @@ function showTooltip(date, counts, event) {
   const tip = $("tooltip"),
     total = [...counts.values()].reduce((sum, value) => sum + value, 0),
     header = el("div", "tip-header");
-  header.append(el("strong", "", date), el("strong", "", formatMetric(total, metric)));
+  header.append(el("strong", "", bucketLabel(date, true)), el("strong", "", bucketCostUnknown(date) ? "Unavailable" : metricText(total, metric)));
   tip.replaceChildren(header);
   for (const [model, value] of [...counts].sort((a, b) => b[1] - a[1]))
     if (value) {
       const row = el("div", "tip-row"),
         label = el("span");
       label.append(swatch(model), document.createTextNode(modelName(model)));
-      row.append(label, el("span", "", formatMetric(value, metric)));
+      row.append(label, el("span", "", metricText(value, metric)));
       tip.append(row);
     }
+  if (metric === "cost") {
+    const unpriced = chartCoverage.get(date)?.missing || 0;
+    if (unpriced) tip.append(el("div", "chapter-meta", `${unpriced} records unpriced · partial total`));
+  }
   tip.hidden = false;
   const box = $("chart-wrap").getBoundingClientRect(),
     target = event.target.getBoundingClientRect();
@@ -589,9 +661,9 @@ function drawBubbles() {
       p.end,
     ),
   }));
-  const maxAverage = Math.max(1, ...chapters.map((p) => p.average)),
+  const maxAverage = Math.max(metric === "cost" ? Number.EPSILON : 1, ...chapters.map((p) => p.average)),
     maxCount = Math.max(
-      1,
+      metric === "cost" ? Number.EPSILON : 1,
       ...chapters.flatMap((p) => p.models.map((m) => m.value)),
     );
   $("chapters").replaceChildren();
@@ -618,7 +690,7 @@ function drawBubbles() {
       bar = el("div", "avg-bar");
     bar.style.height = (p.average / maxAverage) * 90 + "px";
     track.append(bar);
-    const unknown =
+    const unknown = metric === "cost" ? p.requests > 0 && p.costMissing === p.requests :
       !p.total && p.missing && !["requests", "rounds"].includes(metric);
     const perDay =
       metric === "requests"
@@ -628,12 +700,12 @@ function drawBubbles() {
           : METRICS[metric] + "/day";
     head.append(
       track,
-      el("div", "chapter-average", unknown ? "—" : formatAverage(p.average, metric)),
+      el("div", "chapter-average", unknown ? "—" : averageText(p.average, metric)),
       el("div", "chapter-meta", perDay),
       el(
         "div",
         "chapter-meta chapter-total",
-        unknown ? "Not recorded" : formatMetric(p.total, metric) + " total",
+        unknown ? metric === "cost" ? "Unpriced" : "Not recorded" : metricText(p.total, metric) + " total",
       ),
     );
     const harnessCounts = new Map();
@@ -673,7 +745,7 @@ function drawBubbles() {
       model.append(
         el("div", "bubble-name", modelName(m.model)),
         space,
-        el("div", "bubble-value", formatMetric(m.value, metric)),
+        el("div", "bubble-value", metricText(m.value, metric)),
         el("div", "bubble-share", percentage(m.value, p.total)),
       );
       column.append(model);
@@ -683,7 +755,7 @@ function drawBubbles() {
         el(
           "p",
           "chapter-meta",
-          p.missing && !["requests", "rounds"].includes(metric)
+          metric === "cost" && p.costMissing ? "No priced usage" : p.missing && !["requests", "rounds"].includes(metric)
             ? "Tokens not recorded"
             : "No records",
         ),
@@ -738,19 +810,20 @@ function paintRace(position) {
   $("race-slider").setAttribute("aria-valuetext", frame.date);
   $("race-progress").textContent = `${raceIndex + 1} / ${raceFrames.length}`;
   $("race-empty").hidden = frame.ranking.length > 0 || (fraction > 0 && next.ranking.length > 0);
+  $("race-empty").textContent = metric === "cost" ? "No priced usage in this window." : "No recorded usage in this window.";
   const currentHeight = Math.max(1, frame.ranking.length) * 54;
   const nextHeight = Math.max(1, next.ranking.length) * 54;
   const height = currentHeight + (nextHeight - currentHeight) * fraction;
   $("race-board").style.height = height + "px";
-  const maximum = Math.max(1, ...frame.ranking.map(row => row.value));
-  const nextMaximum = Math.max(1, ...next.ranking.map(row => row.value));
-  const axis = rankingAxis(maximum + (nextMaximum - maximum) * fraction);
+  const maximum = Math.max(metric === "cost" ? 0.01 : 1, ...frame.ranking.map(row => row.value));
+  const nextMaximum = Math.max(metric === "cost" ? 0.01 : 1, ...next.ranking.map(row => row.value));
+  const axis = rankingAxis(maximum + (nextMaximum - maximum) * fraction, metric === "cost");
   const scaleMaximum = axis.maximum;
-  $("race-unit").textContent = metric === "requests" ? "Requests" : metric === "rounds" ? "Rounds" : "Tokens";
+  $("race-unit").textContent = metric === "requests" ? "Requests" : metric === "rounds" ? "Rounds" : metric === "cost" ? "USD" : "Tokens";
   if (raceAxisMaximum !== scaleMaximum) {
     raceAxisMaximum = scaleMaximum;
     $("race-axis").querySelector(".race-scale").replaceChildren(...axis.ticks.map((value, index) => {
-      const tick = el("span", "race-tick", formatMetric(value, metric));
+      const tick = el("span", "race-tick", metricText(value, metric));
       tick.style.left = `${100 * value / scaleMaximum}%`;
       if (index === Math.floor((axis.ticks.length - 1) / 2)) tick.dataset.midpoint = "";
       return tick;
@@ -780,7 +853,7 @@ function paintRace(position) {
     row.querySelector(".race-rank").textContent = (ranked?.rank ?? from?.rank ?? to.rank) + 1;
     const counter = row.querySelector(".race-value");
     counter.dataset.value = value;
-    counter.textContent = formatMetric(Math.round(value), metric);
+    counter.textContent = metricText(metric === "cost" ? value : Math.round(value), metric);
     counter.title = exact(value);
     const previousWidth = parseFloat(bar.style.width) || 0;
     bar.style.width = `${previousWidth + (width - previousWidth) * widthBlend}%`;
@@ -1084,8 +1157,13 @@ $("all-models").onclick = () => {
     : new Set(allModels);
   render();
 };
+$("interval-daily").onclick = () => { interval = "daily"; render(); };
+$("interval-hourly").onclick = () => { if (days.length) enterHours(hourDate || end); };
+$("previous-day").onclick = () => { hourDate = addDays(hourDate, -1); render(); };
+$("next-day").onclick = () => { hourDate = addDays(hourDate, 1); render(); };
 $("metric").onchange = (e) => {
   metric = e.target.value;
+  raceAxisMaximum = 0;
   render();
 };
 $("device").onchange = (e) => {
@@ -1180,6 +1258,7 @@ $("refresh").onclick = () => load();
 $("export").onclick = () => {
   const fields = [
     "date",
+    "hour",
     "provider",
     "device",
     "model",
@@ -1191,11 +1270,16 @@ $("export").onclick = () => {
     "cacheWrite",
     "total",
     "tokenRecorded",
+    "estimatedCostUSD",
+    "costMissing",
+    "priceDate",
+    "currency",
   ];
   const csv = [
     fields.join(","),
-    ...activeRows.map((r) =>
-      fields
+    ...activeRows.map((row) => {
+      const r = {...row, estimatedCostUSD: row.cost, priceDate: PRICE_DATE, currency: "USD"};
+      return fields
         .map(
           (f) =>
             '"' +
@@ -1213,12 +1297,13 @@ $("export").onclick = () => {
             ).replaceAll('"', '""') +
             '"',
         )
-        .join(","),
-    ),
+        .join(",");
+    }),
   ].join("\n");
   const a = el("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = `Chronicles-${start}-${end}.csv`;
+  const [lo, hi] = selectedDates();
+  a.download = `Chronicles-${lo}-${hi}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };

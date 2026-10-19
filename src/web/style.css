@@ -1106,7 +1106,7 @@ header {
   white-space: nowrap;
   flex-shrink: 0;
 }
-.visual-top { gap: 16px; margin-bottom: 24px; }
+.visual-top { gap: 16px; margin-bottom: 8px; }
 .tabs { background: var(--muted); padding: 4px; border-radius: var(--radius-lg); gap: 2px; }
 .tabs .toggle { padding: 0 12px; border: 0; border-radius: 8px; box-shadow: none; }
 .tabs .toggle[aria-pressed="true"] { background: var(--background); box-shadow: var(--shadow-xs); }
@@ -1130,6 +1130,11 @@ header {
 .model-panel .chart-summary #total { font-size: 28px; }
 .model-panel .chart-summary span { font-size: 11px; }
 #chart-wrap { min-width: 0; }
+.timeline-controls, .hour-navigation { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.timeline-controls { justify-content: space-between; margin-bottom: 8px; }
+.hour-navigation time { font-size: 12px; font-variant-numeric: tabular-nums; }
+.day-hit[role="button"] { cursor: pointer; }
+.day-hit:focus-visible { outline: 2px solid var(--foreground); outline-offset: -2px; }
 .source-card { border-radius: 0; border: 0; border-top: 1px solid var(--line); padding: 16px 0; }
 #sources-panel { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
 .race-columns, .race-row { grid-template-columns: 28px minmax(90px, 130px) minmax(0, 1fr) 90px; gap: 10px; }

@@ -1,3 +1,5 @@
+import {estimateCost, formatMoney, PRICE_DATE, PRICE_SOURCES} from "./pricing.mjs";
+export {formatMoney, PRICE_DATE, PRICE_SOURCES};
 export const HARNESSES = {
   codex: "Codex",
   claude: "Claude Code",
@@ -19,6 +21,7 @@ export const METRICS = {
   cacheRead: "Cache read tokens",
   cacheWrite: "Cache write tokens",
   rounds: "Copilot response rounds",
+  cost: "Estimated cost",
 };
 export const addDays = (d, n) =>
   new Date(Date.parse(d + "T00:00:00Z") + n * 86400000)
@@ -55,7 +58,13 @@ export function formatMetric(value, metric) {
   return countFormatter.format(value);
 }
 export const formatAverage = (value, metric) => metric === "requests" ? exact(value) : formatMetric(value, metric);
-export function rankingAxis(value) {
+export function rankingAxis(value, fractional = false) {
+  if (fractional && value > 0 && value < 5) {
+    const unit = 10 ** Math.floor(Math.log10(value / 5));
+    const step = [1, 2, 5, 10].find(size => size * unit >= value / 5) * unit;
+    const intervals = Math.ceil(value / step);
+    return {maximum: intervals * step, ticks: Array.from({length: intervals + 1}, (_, i) => i * step)};
+  }
   const largest = Math.max(1, value),
     unit = 10 ** Math.floor(Math.log10(largest / 5)),
     step = Math.max(1, [1, 2, 5, 10].find(size => size * unit >= largest / 5) * unit),
@@ -85,7 +94,13 @@ export function modelName(name) {
       .replace(/\b(astra|sol|terra|luna)\b/g, word => word[0].toUpperCase() + word.slice(1));
   if (/^gemini[- ]/.test(n))
     return n.replace(/^gemini[- ]/, "Gemini ").replaceAll("-", " ")
-      .replace(/\b(flash|pro)\b/g, word => word[0].toUpperCase() + word.slice(1));
+      .replace(/\b(flash|pro|argon)\b/g, word => word[0].toUpperCase() + word.slice(1));
+  if (/^grok[- ]/.test(n)) return n.replace(/^grok/, "Grok").replaceAll("-", " ");
+  if (/^kimi[- ]/.test(n)) return n.replace(/^kimi-k/, "Kimi K").replaceAll("-", " ").replace(/\bcode\b/, "Code");
+  if (/^glm-/.test(n)) return n.toUpperCase().replace(/-FLASHX?/, word => word === "-FLASHX" ? " FlashX" : " Flash");
+  if (/^deepseek-/.test(n)) return n.replace(/^deepseek-/, "DeepSeek ").replaceAll("-", " ").replace(/\b(flash|pro)\b/g, word => word[0].toUpperCase() + word.slice(1));
+  if (n === "muse-spark-open" || n === "meta-models/muse-spark-open-816b-a42b") return "Muse Spark Open";
+  if (n === "meta-llama/llama-3.3-70b-instruct-turbo") return "Llama 3.3 70B Turbo";
   for (const family of ["opus", "sonnet", "haiku", "fable"])
     if (n.startsWith(family + "-"))
       return n
@@ -144,7 +159,7 @@ export function modelColor(name) {
   return `hsl(${Math.abs(hue)} 70% ${lightness}%)`;
 }
 export function normalize(data) {
-  const rows = data.rows.map((r) => ({
+  const rows = (data.hourlyRows || data.rows).map((r) => ({
     ...r,
     model: modelId(r.model),
     requests: r.requests || 0,
@@ -171,7 +186,49 @@ export function normalize(data) {
       missing: 1,
       roundMissing: r.rounds ? 0 : 1,
     });
-  return rows.filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date));
+  return rows.filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date)).map(r => {
+    const cost = estimateCost(r);
+    return {...r, hour: hourKey(r.hour || r.timestamp, data.timezone || "UTC"), cost, costMissing: cost === null ? r.requests : 0};
+  });
+}
+const hourFormatters = new Map();
+export function hourKey(instant, timeZone) {
+  if (!instant || !/(?:Z|[+-]\d\d:\d\d)$/.test(instant)) return null;
+  const date = new Date(instant);
+  if (!Number.isFinite(date.getTime())) return null;
+  if (!hourFormatters.has(timeZone)) hourFormatters.set(timeZone, new Intl.DateTimeFormat("en", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23", timeZoneName: "longOffset",
+  }));
+  const p = Object.fromEntries(hourFormatters.get(timeZone).formatToParts(date).map(p => [p.type, p.value]));
+  const offset = p.timeZoneName === "GMT" ? "+00:00" : p.timeZoneName.replace("GMT", "");
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:00:00${offset}`;
+}
+const bucketCache = new Map();
+export function hourlyBuckets(date, timeZone) {
+  const cacheKey = `${date}/${timeZone}`;
+  if (!bucketCache.has(cacheKey)) {
+    const start = Date.parse(date + "T00:00:00Z"), keys = new Set();
+    // Includes half/quarter-hour offsets and repeated daylight-saving hours.
+    for (let t = start - 18 * 3600000; t < start + 42 * 3600000; t += 15 * 60000) {
+      const key = hourKey(new Date(t).toISOString(), timeZone);
+      if (key.slice(0, 10) === date) keys.add(key);
+    }
+    bucketCache.set(cacheKey, [...keys].sort((a,b) => Date.parse(a) - Date.parse(b)));
+  }
+  return bucketCache.get(cacheKey);
+}
+export function timelineBuckets(rows, metric, start, end, timeZone, hourly = false) {
+  const map = new Map();
+  if (hourly) for (const key of hourlyBuckets(start, timeZone)) map.set(key, new Map());
+  else for (let d = start; d <= end; d = addDays(d, 1)) map.set(d, new Map());
+  for (const row of rows) {
+    if (row.date < start || row.date > end) continue;
+    const key = hourly ? row.hour || "unknown" : row.date;
+    if (!map.has(key)) map.set(key, new Map());
+    const counts = map.get(key);
+    counts.set(row.model, (counts.get(row.model) || 0) + (row[metric] || 0));
+  }
+  return map;
 }
 // Availability reflects loaded history, independent of chart filters and quotas.
 export function historyHarnesses(rows) {
@@ -202,12 +259,14 @@ export function aggregate(rows, metric) {
         value: 0,
         requests: 0,
         missing: 0,
+        costMissing: 0,
         harnesses: new Set(),
       });
     const a = map.get(key);
     a.value += r[metric] || 0;
     a.requests += r.requests;
     a.missing += r.missing;
+    a.costMissing += r.costMissing || 0;
     a.harnesses.add(r.provider);
   }
   return [...map.values()].sort(
@@ -294,5 +353,7 @@ export function summarize(rows, metric, start, end) {
     average: total / daysBetween(start, end),
     missing: rows.reduce((s, r) => s + r.missing, 0),
     roundMissing: rows.reduce((s, r) => s + r.roundMissing, 0),
+    costMissing: rows.reduce((s, r) => s + (r.costMissing || 0), 0),
+    requests: rows.reduce((s, r) => s + r.requests, 0),
   };
 }
