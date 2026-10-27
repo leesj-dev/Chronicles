@@ -5,6 +5,29 @@ import {normalize, summarize, timelineBuckets, hourlyBuckets, hourKey, modelName
 import {estimateCost, priceFor, formatMoney} from "../src/web/pricing.mjs";
 
 const usage = {date: "2026-10-19", model: "claude-haiku-5-5", provider: "claude", device: "this-mac", requests: 1, input: 1e6, output: 1e6, cacheRead: 1e6, cacheWrite: 1e6, total: 4e6};
+test("Terra 6.1 history is priced without inventing a Terra 6 model", () => {
+  const rows = normalize({rows: [
+    {...usage, model: "gpt-6.1-terra"},
+    {...usage, model: "openai/gpt-6.1-terra-2026-10-27"},
+    {...usage, model: "gpt-6-terra"},
+  ]});
+  assert.equal(rows[0].cost, 7.3);
+  assert.equal(rows[1].cost, rows[0].cost);
+  assert.equal(rows[2].cost, null);
+  assert.equal(modelName(rows[0].model), "GPT-6.1 Terra");
+  assert.equal(summarize(rows, "cost", usage.date, usage.date).costMissing, 1);
+});
+test("new catalog entries normalize Claude versions and retain scheduled Gemini rates", () => {
+  const mythos = normalize({rows: [{...usage, model: "claude-mythos-5-1"}]})[0];
+  assert.equal(mythos.model, "claude-mythos-5.1");
+  assert.equal(mythos.cost, 72.75);
+  assert.equal(modelName(mythos.model), "Mythos 5.1");
+  assert.equal(estimateCost({...usage, model: "kimi-k3.1-pro"}), 14.2);
+  assert.equal(estimateCost({...usage, model: "kimi-k3.1-pro-highspeed"}), 28.2);
+  assert.equal(estimateCost({...usage, model: "glm-5.3-flashx-legal", cacheWrite: 0}), 1.695);
+  assert.deepEqual(priceFor("gemini-3.6-flash", "2026-12-31"), [0.75,3.75,0.075,null]);
+  assert.deepEqual(priceFor("gemini-3.6-flash", "2027-01-01"), [1.5,7.5,0.15,null]);
+});
 test("cost keeps cache buckets disjoint, merges Haiku IDs and preserves unknown prices", () => {
   const rows = normalize({rows: [usage, {...usage, model: "unreleased-model"}], missing: [{date: usage.date, model: usage.model, provider: "copilot"}]});
   assert.equal(rows[0].model, "claude-haiku-5.5");

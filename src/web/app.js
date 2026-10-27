@@ -332,7 +332,7 @@ function controls() {
   $("race-options").hidden = view !== "race";
   $("group-control").hidden = view !== "bubbles";
 }
-function render() {
+function render({racePosition: position = 0} = {}) {
   pauseRace();
   const focused = document.activeElement;
   const focusKey = focused?.dataset.focusKey;
@@ -399,7 +399,7 @@ function render() {
   renderModels();
   if (view === "daily") drawDaily();
   else if (view === "bubbles") drawBubbles();
-  else drawRace();
+  else drawRace(position);
   if (focusKey && keyboardFocus) {
     for (const button of document.querySelectorAll("[data-focus-key]"))
       if (button.dataset.focusKey === focusKey) {
@@ -1158,13 +1158,17 @@ $("all-models").onclick = () => {
   render();
 };
 $("interval-daily").onclick = () => { interval = "daily"; render(); };
-$("interval-hourly").onclick = () => { if (days.length) enterHours(hourDate || end); };
+$("interval-hourly").onclick = () => {
+  if (!days.length) return;
+  const today = calendarDate(data.timezone || "UTC");
+  enterHours(today < start ? start : today > end ? end : today);
+};
 $("previous-day").onclick = () => { hourDate = addDays(hourDate, -1); render(); };
 $("next-day").onclick = () => { hourDate = addDays(hourDate, 1); render(); };
 $("metric").onchange = (e) => {
   metric = e.target.value;
   raceAxisMaximum = 0;
-  render();
+  render({racePosition});
 };
 $("device").onchange = (e) => {
   device = e.target.value;

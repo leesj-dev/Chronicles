@@ -80,7 +80,7 @@ export function modelId(name) {
     .replace(/^claude-(\d+)(?:[.-](\d+))?-haiku(?=$|-)/,
       (_, major, minor) => `claude-haiku-${major}${minor ? "." + minor : ""}`)
     .replace(
-      /(claude-(?:opus|sonnet|haiku|fable)-\d+)-(\d{1,2})(?=$|-)/,
+      /(claude-(?:opus|sonnet|haiku|fable|mythos)-\d+)-(\d{1,2})(?=$|-)/,
       "$1.$2",
     );
 }
@@ -101,7 +101,7 @@ export function modelName(name) {
   if (/^deepseek-/.test(n)) return n.replace(/^deepseek-/, "DeepSeek ").replaceAll("-", " ").replace(/\b(flash|pro)\b/g, word => word[0].toUpperCase() + word.slice(1));
   if (n === "muse-spark-open" || n === "meta-models/muse-spark-open-816b-a42b") return "Muse Spark Open";
   if (n === "meta-llama/llama-3.3-70b-instruct-turbo") return "Llama 3.3 70B Turbo";
-  for (const family of ["opus", "sonnet", "haiku", "fable"])
+  for (const family of ["opus", "sonnet", "haiku", "fable", "mythos"])
     if (n.startsWith(family + "-"))
       return n
         .replace(family + "-", family[0].toUpperCase() + family.slice(1) + " ")
