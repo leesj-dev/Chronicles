@@ -23,7 +23,10 @@ class CompressedCodexTests(unittest.TestCase):
             archive = root/'old.jsonl.zst'
             archive.write_bytes(ARCHIVE)
             original = archive.read_bytes()
-            with patch('adapters.base.KST', ZoneInfo('Asia/Seoul')):
+            # Both modules bind the report timezone at import time. Keep the
+            # parser and hourly collector in the same zone on UTC CI runners.
+            with patch('adapters.base.KST', ZoneInfo('Asia/Seoul')), \
+                    patch('server.KST', ZoneInfo('Asia/Seoul')):
                 collector = Collector([('codex', root)])
                 report = collector.collect()
                 self.assertEqual(report['errors'], [])
