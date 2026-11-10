@@ -26,7 +26,7 @@ and recheck the source links when refreshing the catalog.
 
 The October 27 refresh adds GPT-6.1 Terra (there is no GPT-6 Terra mapping),
 Claude Mythos 5/5.1, Kimi K3.1 Pro/Highspeed, Gemini 3.6 Flash/3.5 Flash and
-GLM-5.3-FlashX-Legal. Haiku 5.5, Opus/Sonnet 5.5, Fable 5.1, Gemini 4 Argon,
+GLM-5.3-FlashX-Legal. Haiku 5.5, Opus/Sonnet 5.5, Fable 5.1/5.2, Gemini 4 Argon,
 Grok 4.7, GLM 5.3 and DeepSeek Flash/Pro already matched their published base
 rates. OpenAI cache writes assume 30m retention; Claude and Kimi assume 5m.
 Haiku 5.5's higher tier starts above 100,000 prompt tokens and is excluded

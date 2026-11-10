@@ -65,13 +65,15 @@ test("Pro Preview, Codex 5.2 and Fable versions use their published rates", () =
   assert.deepEqual(priceFor("gpt-5.2-codex"), [1.75,14,0.175,null]);
   assert.deepEqual(priceFor("claude-fable-5"), [10,50,1,12.5]);
   assert.deepEqual(priceFor("claude-fable-5-1"), [10,50,0.25,12.5]);
-  for (const model of ["gemini-3.1-pro-preview", "gpt-5.2-codex", "claude-fable-5", "claude-fable-5-1", "claude-opus-4-6-thinking"]) {
+  assert.deepEqual(priceFor("claude-fable-5-2"), [8,40,0.2,10]);
+  for (const model of ["gemini-3.1-pro-preview", "gpt-5.2-codex", "claude-fable-5", "claude-fable-5-1", "claude-fable-5-2", "claude-opus-4-6-thinking"]) {
     const row = normalize({rows:[{...usage,model,cacheWrite:0}]})[0];
     assert.notEqual(row.cost, null, model);
     assert.equal(row.costMissing, 0, model);
   }
   const values = {...usage,model:"claude-opus-4-6-thinking"};
   assert.equal(normalize({rows:[values]})[0].cost, normalize({rows:[{...values,model:"claude-opus-4.6"}]})[0].cost);
+  assert.equal(estimateCost({...usage,model:"claude-fable-5.2"}), 58.2);
   assert.equal(estimateCost({...usage,model:"claude-fable-5.1"}), 72.75);
   assert.equal(estimateCost({...usage,model:"claude-fable-5"}), 73.5);
 });

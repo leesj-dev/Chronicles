@@ -35,6 +35,7 @@ export const TOKEN_PRICES = {
   "claude-opus-5": [5, 25, 0.5, 6.25],
   "claude-fable-5": [10, 50, 1, 12.5],
   "claude-fable-5.1": [10, 50, 0.25, 12.5],
+  "claude-fable-5.2": [8, 40, 0.2, 10],
   "claude-mythos-5": [10, 50, 1, 12.5],
   "claude-mythos-5.1": [10, 50, 0.25, 12.5],
   "claude-opus-4.8": [5, 25, 0.5, 6.25],
