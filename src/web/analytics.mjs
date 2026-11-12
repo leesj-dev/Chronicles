@@ -82,7 +82,8 @@ export function modelId(name) {
     .replace(
       /(claude-(?:opus|sonnet|haiku|fable|mythos)-\d+)-(\d{1,2})(?=$|-)/,
       "$1.$2",
-    );
+    )
+    .replace(/^gemini[- ]3\.8[- ]flash(?=$|[- ](?!lite\b)).*/, "gemini-3.8-flash");
 }
 export function modelName(name) {
   let n = modelId(name).replace(/^claude-/, "");

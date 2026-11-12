@@ -14,8 +14,8 @@ not tokens. Partial totals retain a visible coverage note.
 
 The catalog covers OpenAI, Claude (including Haiku 5.5), Gemini (including
 4 Argon), Grok, Kimi, GLM, DeepSeek and selected Meta models. Explicit history
-label mappings price Gemini 3.8 Flash variants, Gemini 3 Flash A and Opus 4.6 Thinking
-using the corresponding base-model rates, without renaming the records. Meta reference
+label mappings price Gemini 3 Flash A and Opus 4.6 Thinking
+using the corresponding base-model rates, without renaming the records (Gemini 3.8 Flash variants merge into Gemini 3.8 Flash). Meta reference
 rates come from Together AI and do not represent every hosting provider.
 DeepSeek comparisons use peak rates. Haiku 5.5 uses its base prompt-length
 tier. Fast/batch modes, long-context premiums, tax, tool calls, media and cache
