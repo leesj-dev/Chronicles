@@ -80,11 +80,13 @@ test("Pro Preview, Codex 5.2 and Fable versions use their published rates", () =
 test("history variants use explicit base-model estimates without changing model identity", () => {
   for (const [variant, base] of [
     ["gemini-3.8-flash-n", "gemini-3.8-flash"],
+    ["gemini-3.8-flash-k", "gemini-3.8-flash"],
+    ["Gemini 3.8 Flash (Medium)", "gemini-3.8-flash"],
     ["gemini-3-flash-a", "gemini-3-flash-preview"],
     ["claude-opus-4.6-thinking", "claude-opus-4.6"],
   ]) {
     const row = normalize({rows:[{...usage, model:variant}]})[0];
-    assert.equal(row.model, variant);
+    assert.equal(row.model, variant.toLowerCase());
     // Gemini has no published cache-write token category.
     const recorded = {...row, cacheWrite:0};
     assert.equal(estimateCost(recorded), estimateCost({...recorded,model:base}));
@@ -93,9 +95,12 @@ test("history variants use explicit base-model estimates without changing model 
   }
   assert.deepEqual(priceFor("gemini-3.7-flash"), [0.75,3.75,0.075,null]);
   assert.deepEqual(priceFor("gemini-3.8-flash-n", "2027-01-01"), [1.5,7.5,0.15,null]);
+  assert.deepEqual(priceFor("gemini-3.8-flash-k", "2027-01-01"), [1.5,7.5,0.15,null]);
+  assert.deepEqual(priceFor("Gemini 3.8 Flash (Medium)", "2027-01-01"), [1.5,7.5,0.15,null]);
   assert.deepEqual(priceFor("gemini-3.7-flash", "2027-01-01"), [1.5,7.5,0.15,null]);
   assert.notEqual(priceFor("claude-fable-5"), null);
-  assert.equal(priceFor("gemini-3.8-flash-made-up"), null);
+  assert.equal(priceFor("gemini-3.8-flash-lite"), null);
+  assert.equal(priceFor("gemini-3.7-flash-made-up"), null);
 });
 test("hourly aggregation preserves daily totals, empty hours and untimed legacy records", () => {
   const rows = normalize({timezone: "Asia/Seoul", rows: [], hourlyRows: [

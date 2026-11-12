@@ -90,7 +90,6 @@ export const PRICE_ALIASES = {
   "gemini-3.1-pro-preview-customtools": "gemini-3.1-pro-preview",
   // Explicit history-label mappings for API-equivalent estimates. Keep the
   // original row model intact; these labels are not separate published SKUs.
-  "gemini-3.8-flash-n": "gemini-3.8-flash",
   "gemini-3-flash-a": "gemini-3-flash-preview",
   "gemini-3-flash": "gemini-3-flash-preview",
   "claude-opus-4.6-thinking": "claude-opus-4.6",
@@ -104,6 +103,7 @@ export const PRICE_ALIASES = {
 export function priceFor(model, asOf = PRICE_DATE) {
   let name = model.toLowerCase().replace(/^(openai|anthropic|google|x-ai|moonshotai|z-ai|deepseek)\//, "").replace(/-(?:\d{8}|\d{4}-\d{2}-\d{2})$/, "");
   name = name.replace(/(claude-(?:opus|sonnet|haiku|fable|mythos)-\d+)-(\d{1,2})(?=$|-)/, "$1.$2");
+  if (/^gemini[- ]3\.8[- ]flash(?=$|[- ](?!lite\b))/.test(name)) name = "gemini-3.8-flash";
   name = Object.hasOwn(PRICE_ALIASES, name) ? PRICE_ALIASES[name] : name;
   if (name === "gemini-4-argon" && asOf >= "2026-12-01") return [4, 20, 0.2, null];
   if (["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"].includes(name) && asOf >= "2027-01-01") return [1.5, 7.5, 0.15, null];
