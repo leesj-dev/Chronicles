@@ -20,6 +20,7 @@ import {
   modelName,
   modelColor,
   normalize,
+  reconcileModels,
   filterRows,
   aggregate,
   periods,
@@ -67,8 +68,8 @@ function selectedDates() {
 }
 let harnesses = new Set(saved.harnesses || Object.keys(HARNESSES)),
   models = new Set(saved.models || []),
-  isDemo = false,
-  initialized = false;
+  knownModels = new Set(saved.knownModels || []),
+  isDemo = false;
 function persist() {
   try {
     localStorage.setItem(
@@ -82,6 +83,7 @@ function persist() {
         start,
         harnesses: [...harnesses],
         models: [...models],
+        knownModels: [...knownModels],
         excludeReview: $("exclude-review").checked,
       }),
     );
@@ -1074,23 +1076,16 @@ async function load(endpoint = "/api/usage", reset = false) {
     if (reset) {
       start = end = undefined;
       models = new Set();
-      initialized = false;
-      saved.models = undefined;
+      knownModels = new Set();
       if (result.demo) harnesses = new Set(Object.keys(HARNESSES));
     }
-    const knownModels = new Set(allModels);
     data = result;
     rows = normalize(data);
     isDemo = !!data.demo;
     renderSources();
     const dates = rows.map((r) => r.date).sort();
     allModels = [...new Set(rows.map((r) => r.model))].sort();
-    if (!initialized) {
-      models = new Set(saved.models || allModels);
-      initialized = true;
-    } else
-      for (const name of allModels)
-        if (!knownModels.has(name)) models.add(name);
+    ({selected: models, known: knownModels} = reconcileModels(allModels, models, knownModels));
     const followLatest = !end || end === days.at(-1);
     const lastDate = !isDemo && !window.CHRONICLES_DATA
       ? [dates.at(-1), calendarDate(data.timezone || "UTC")].filter(Boolean).sort().at(-1)
@@ -1186,6 +1181,13 @@ document.querySelectorAll("[data-view]").forEach(
       render();
     }),
 );
+// Preserve the displayed date when the selected period changes.
+function renderRange() {
+  const frame = view === "race" && raceFrames[raceIndex];
+  if (!frame) return render();
+  const position = daysBetween(start, frame.date) - 1 + (racePosition - raceIndex);
+  render({racePosition: Math.max(0, Math.min(daysBetween(start, end) - 1, position))});
+}
 for (const which of ["start", "end"]) {
   const setDate = (value) => {
     if (!value || !days.length) return;
@@ -1193,7 +1195,7 @@ for (const which of ["start", "end"]) {
       value < days[0] ? days[0] : value > days.at(-1) ? days.at(-1) : value;
     if (which === "start") start = d > end ? end : d;
     else end = d < start ? start : d;
-    render();
+    renderRange();
   };
   $(which + "-date").onchange = (e) => setDate(e.target.value);
   $(which + "-slider").oninput = (e) => setDate(days[Number(e.target.value)]);
@@ -1215,7 +1217,7 @@ const moveRange = (event) => {
   const previousStart = start, previousEnd = end;
   if (rangeDrag === "start") start = days[Math.min(index, daysBetween(days[0], end) - 1)];
   else end = days[Math.max(index, daysBetween(days[0], start) - 1)];
-  if (start !== previousStart || end !== previousEnd) render();
+  if (start !== previousStart || end !== previousEnd) renderRange();
 };
 rangeTrack.addEventListener("pointerdown", (event) => {
   if (!days.length || !start || !end || event.button !== 0) return;
@@ -1255,7 +1257,7 @@ document.querySelectorAll("[data-days]").forEach(
         b.dataset.days === "all"
           ? days[0]
           : [days[0], addDays(end, 1 - Number(b.dataset.days))].sort().at(-1);
-      render();
+      renderRange();
     }),
 );
 $("refresh").onclick = () => load();

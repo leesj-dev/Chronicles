@@ -1,7 +1,7 @@
 // Published standard text-token rates, USD per million tokens.
 // This is an API-equivalent comparison at this snapshot's rates, not a bill
 // or a reconstruction of historical pricing. Never guess a model's price.
-export const PRICE_DATE = "2026-10-27";
+export const PRICE_DATE = "2026-11-19";
 export const PRICE_SOURCES = [
   ["OpenAI", "https://developers.openai.com/api/docs/pricing"],
   ["Claude", "https://platform.claude.com/docs/en/about-claude/pricing"],
@@ -16,6 +16,8 @@ export const PRICE_SOURCES = [
 // [uncached input, output, cache read, cache write]. Claude/Kimi writes assume
 // 5m retention; OpenAI writes assume 30m. All rates use the base prompt tier.
 export const TOKEN_PRICES = {
+  "gpt-6.2-astra": [8, 40, 0.4, 10],
+  "gpt-6.2-sol": [2, 10, 0.1, 2.5],
   "gpt-6.1-sol": [2, 10, 0.1, 2.5],
   "gpt-6.1-terra": [1, 5, 0.05, 1.25],
   "gpt-6-sol": [2, 10, 0.2, 2.5],
@@ -47,6 +49,9 @@ export const TOKEN_PRICES = {
   "claude-sonnet-4.5": [3, 15, 0.3, 3.75],
   "claude-haiku-4.5": [1, 5, 0.1, 1.25],
   "claude-haiku-5.5": [0.1, 0.5, 0.01, 0.125],
+  "gemini-4-hydrogen": [1.5, 7.5, 0.075, null],
+  "gemini-4-carbon": [2, 10, 0.1, null],
+  "gemini-4-neon": [3, 15, 0.15, null],
   "gemini-4-argon": [2, 10, 0.1, null],
   "gemini-3.8-flash": [0.75, 3.75, 0.075, null],
   "gemini-3.7-flash": [0.75, 3.75, 0.075, null],
@@ -105,7 +110,7 @@ export function priceFor(model, asOf = PRICE_DATE) {
   name = name.replace(/(claude-(?:opus|sonnet|haiku|fable|mythos)-\d+)-(\d{1,2})(?=$|-)/, "$1.$2");
   if (/^gemini[- ]3\.8[- ]flash(?=$|[- ](?!lite\b))/.test(name)) name = "gemini-3.8-flash";
   name = Object.hasOwn(PRICE_ALIASES, name) ? PRICE_ALIASES[name] : name;
-  if (name === "gemini-4-argon" && asOf >= "2026-12-01") return [4, 20, 0.2, null];
+  if (["gemini-4-argon", "gemini-4-carbon"].includes(name) && asOf >= "2026-12-01") return [4, 20, 0.2, null];
   if (["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"].includes(name) && asOf >= "2027-01-01") return [1.5, 7.5, 0.15, null];
   return Object.hasOwn(TOKEN_PRICES, name) ? TOKEN_PRICES[name] : null;
 }

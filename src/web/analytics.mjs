@@ -1,5 +1,15 @@
 import {estimateCost, formatMoney, PRICE_DATE, PRICE_SOURCES} from "./pricing.mjs";
 export {formatMoney, PRICE_DATE, PRICE_SOURCES};
+// A missing known list is a legacy selection: it cannot distinguish deselected models from new ones.
+export function reconcileModels(available, selected, known) {
+  const seen = new Set(known || []);
+  const result = new Set(selected || []);
+  for (const model of available) {
+    if (!seen.has(model)) result.add(model);
+    seen.add(model);
+  }
+  return {selected: result, known: seen};
+}
 export const HARNESSES = {
   codex: "Codex",
   claude: "Claude Code",

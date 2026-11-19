@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   normalize,
+  reconcileModels,
   historyHarnesses,
   filterRows,
   aggregate,
@@ -17,6 +18,16 @@ import {
   formatMetric,
   formatAverage,
 } from "../src/web/analytics.mjs";
+test("new models are selected across reloads while deselected models stay off", () => {
+  const first = reconcileModels(["old", "disabled"], [], []);
+  first.selected.delete("disabled");
+  const reload = reconcileModels(["old", "disabled", "gpt-6.2-sol"], [...first.selected], [...first.known]);
+  assert.deepEqual([...reload.selected].sort(), ["gpt-6.2-sol", "old"]);
+  const missing = reconcileModels(["old"], [...reload.selected], [...reload.known]);
+  const returned = reconcileModels(["old", "disabled"], [...missing.selected], [...missing.known]);
+  assert.equal(returned.selected.has("disabled"), false);
+  assert.deepEqual([...reconcileModels(["legacy", "new"], ["legacy"], undefined).selected].sort(), ["legacy", "new"]);
+});
 test("ranking axes use round ticks with a ceiling that contains the leader", () => {
   assert.deepEqual(rankingAxis(33000000), {maximum: 40000000, ticks: [0, 10000000, 20000000, 30000000, 40000000]});
   assert.deepEqual(rankingAxis(27000000), {maximum: 30000000, ticks: [0, 10000000, 20000000, 30000000]});

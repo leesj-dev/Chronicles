@@ -1,0 +1,64 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:chronicles}/macos",
+      "name": "Debug Chronicles (macos)",
+      "target": "Chronicles",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug Chronicles (macos)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:chronicles}/macos",
+      "name": "Release Chronicles (macos)",
+      "target": "Chronicles",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release Chronicles (macos)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:chronicles}/macos",
+      "name": "Debug chronicles-inspect (macos)",
+      "target": "chronicles-inspect",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug chronicles-inspect (macos)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:chronicles}/macos",
+      "name": "Release chronicles-inspect (macos)",
+      "target": "chronicles-inspect",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release chronicles-inspect (macos)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:chronicles}/macos",
+      "name": "Debug chronicles-core-checks (macos)",
+      "target": "chronicles-core-checks",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug chronicles-core-checks (macos)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:chronicles}/macos",
+      "name": "Release chronicles-core-checks (macos)",
+      "target": "chronicles-core-checks",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release chronicles-core-checks (macos)"
+    }
+  ]
+}

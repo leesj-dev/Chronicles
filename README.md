@@ -24,6 +24,17 @@ Replay model rankings over time using a 7-day window, a 30-day window, or cumula
 
 All screenshots use fictional demo records.
 
+## Native macOS app (in development)
+
+A fully native macOS port is underway in [`macos/`](macos/README.md), using Swift and SwiftUI/AppKit, with a native Canvas daily timeline. The first slice includes the daily timeline, filters, CSV export, JSON report opening, and Codex/Claude Code collection. The app starts with fictional demo records and runs without Python, WebKit, or a local server. macOS 14+ and Swift 6 are required to build it.
+
+```sh
+macos/scripts/build-app.sh
+open macos/build/Chronicles.app
+```
+
+The native app is not yet at feature parity with the web version. See the [port status and verification instructions](macos/README.md).
+
 ## Quick start
 
 Requires **Python 3.10+** and a modern browser. Node.js 20+ is optional for development checks. Copilot and Antigravity discovery currently targets macOS; other adapters use their provider’s standard data locations.
@@ -49,7 +60,7 @@ If no local usage records are found, the app automatically shows a preview demo 
 - **Daily timeline:** stacked daily bars with model tooltips and shared model colors.
 - **Model chapters:** ranked circles with model names directly above them. Circle area represents total usage; bars use a common scale to compare daily averages across chapters.
 - **Ranking race:** animate model rankings for the selected metric and filters. Rolling windows include available history before the selected start date; cumulative usage starts at that date. At 1x, playback advances by two dates per second.
-- **Filters:** select models and harnesses individually or select/deselect all. Only harnesses with loaded usage records appear; changing chart filters keeps that list stable.
+- **Filters:** select models and harnesses individually or select/deselect all. Newly found models are selected automatically; models you deselect stay off. When upgrading from an older saved selection, current models are selected once because the old settings did not track which models had been seen. Only harnesses with loaded usage records appear; changing chart filters keeps that list stable.
 - **Summary and models:** see the selected-period total, daily average, and model count beside the chart. Toggle models from the list; on small screens, the panels stack vertically.
 - **Numbers:** request counts stay unabridged (for example, `11,680`), and request averages use at most one decimal place. Abbreviated token values use two decimal places (for example, `130.50M`).
 - **Metrics:** requests/calls, total/input/output tokens, cache read/write, and Copilot response rounds. All visualizations use the same metrics and colors.
@@ -66,7 +77,7 @@ Native history adapters support seven harnesses:
 
 | Harness | History source | One requests/calls unit |
 | --- | --- | --- |
-| Codex | `~/.codex/sessions` and `archived_sessions` | Unique token-usage report |
+| Codex | `~/.codex/sessions` and `archived_sessions`, including `.jsonl.zst` archives | Unique token-usage report |
 | Claude Code | `~/.claude/projects` | Response message carrying usage |
 | Copilot | macOS VS Code `workspaceStorage/*/chatSessions` | Saved user request with a result |
 | Antigravity | `~/.gemini/antigravity*/conversations/*.db` | Generation metadata record |
@@ -75,6 +86,8 @@ Native history adapters support seven harnesses:
 | OpenCode | `~/.local/share/opencode/opencode*.db`, v1 and v2 tables | Completed assistant/compaction message |
 
 `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `GROK_HOME`, `OPENCODE_DATA_DIR`, and `XDG_DATA_HOME` override their respective data locations.
+
+Codex may compress older rollouts into `.jsonl.zst` when migrating to paginated history. Chronicles streams these archives alongside active JSONL files, using their original timestamps, models, and token counters. Duplicate reports across compressed, plain, and imported records still merge. No saved Chronicles report is required. Compressed history requires Python 3.14+ (standard-library Zstandard support), or a `zstd` executable on `PATH` with older Python versions. For example, install `zstd` with `brew install zstd` on macOS. Missing decompression support or unreadable archives are reported as a partial scan; provider files are never modified.
 
 ### History & account limits
 
