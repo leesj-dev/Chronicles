@@ -182,6 +182,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "libc",
+ "memchr",
  "percent-encoding",
  "reqwest",
  "serde",

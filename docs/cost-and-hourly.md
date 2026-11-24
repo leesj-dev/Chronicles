@@ -11,6 +11,8 @@ OpenRouter and models.dev and caches them in `TOKSCALE_CONFIG_DIR`
 (`.local/engine`); `chronicles serve --offline` prices from that cache
 without fetching. When a source records a cost, tokscale-core uses that amount
 and marks it as reported (`CostSource::ProviderReported`).
+The engine then applies the published rates tokscale-core does not know, listed with
+their sources in [`engine/src/rules.rs`](../engine/src/rules.rs).
 The comparison shows API-equivalent costs, and estimated costs for older
 records use current rates.
 

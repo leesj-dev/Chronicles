@@ -1,4 +1,8 @@
+//! Reads and prices local history with tokscale-core. Kept byte-identical in Chronicles and CrossBar.
+
+use crate::rules;
 use serde::Serialize;
+use std::path::Path;
 use tokscale_core::sessions::{CostSource, EstimateStatus};
 use tokscale_core::{ClientId, LocalParseOptions};
 
@@ -19,10 +23,12 @@ pub(crate) struct Message {
     dedup: Option<String>,
     timestamp: i64,
     input: i64,
+    /// Includes reasoning, which tokscale counts apart from output.
     output: i64,
     cache_read: i64,
     cache_write: i64,
     cache_write_1h: i64,
+    /// The part of `output` spent on reasoning.
     reasoning: i64,
     messages: i32,
     /// USD; null when the message could not be priced.
@@ -44,7 +50,7 @@ pub struct Options {
     #[arg(long)]
     pub offline: bool,
     #[arg(long)]
-    clients: Option<String>,
+    pub clients: Option<String>,
     #[arg(long)]
     exclude: Option<String>,
     #[arg(long)]
@@ -106,6 +112,8 @@ pub async fn scan(options: &Options) -> Result<Report, String> {
             ..Default::default()
         })
         .await?;
+        let home = options.home.as_deref().map(Path::new);
+        rules::apply(&mut parsed, &rules::claude_fast_requests(home));
         // The synthetic client can discover a Cursor cache implicitly.
         parsed.retain(|m| m.client != "cursor");
     }
@@ -125,7 +133,7 @@ pub async fn scan(options: &Options) -> Result<Report, String> {
                 dedup: m.dedup_key.clone(),
                 timestamp: m.timestamp,
                 input: m.tokens.input,
-                output: m.tokens.output,
+                output: m.tokens.output.saturating_add(m.tokens.reasoning),
                 cache_read: m.tokens.cache_read,
                 cache_write: m.tokens.cache_write,
                 cache_write_1h: m.tokens.cache_write_1h,

@@ -20,10 +20,12 @@ chronicles report [--offline] [--clients a,b] [--exclude a,b] [--home DIR]
 chronicles --list-clients
 ```
 
-`report` prints `{"engine", "tokscaleCore", "clients": [{id, name}], "messages": [...]}`. Each message has `client`, `model`, `provider`, `session`, `dedup`, `timestamp` (epoch milliseconds), token counts, `messages`, `cost` (USD or null), and `costSource` (`estimated`, `partial`, `reported`, or `unpriced`). `--clients` selects harnesses and `--exclude` removes harnesses from that selection. Cursor appears in the list of upstream clients. Local and remote scans omit its history.
+`report` prints `{"engine", "tokscaleCore", "clients": [{id, name}], "messages": [...]}`. Each message has `client`, `model`, `provider`, `session`, `dedup`, `timestamp` (epoch milliseconds), token counts (`output` includes `reasoning`), `messages`, `cost` (USD or null), and `costSource` (`estimated`, `partial`, `reported`, or `unpriced`). `--clients` selects harnesses and `--exclude` removes harnesses from that selection. Cursor appears in the list of upstream clients. Local and remote scans omit its history.
 
 The in-process collector and sync import share report conversion and event ID generation. The server captures tokscale stderr during serialized scans on Unix and surfaces lines beginning with `Warning:`. The raw `report` command leaves diagnostics on stderr for the sync caller. `--offline` uses cached pricing, and reports use `TOKSCALE_CONFIG_DIR` when set. tokscale-core initializes pricing once per process. Restart a running server to reload its pricing catalog.
 
 ## tokscale-core dependency
 
 Parsing and pricing come from `tokscale-core`, the MIT-licensed library of the [tokscale](https://github.com/junhoyeo/tokscale) project by Junho Yeo. `Cargo.toml` pins it at commit `b265e83`. To update it, change the revision and the version string in `src/report.rs`, then rebuild and run the parity tests.
+
+`src/events.rs`, `src/report.rs` and `src/rules.rs` are byte-identical in CrossBar, which pins the same tokscale-core revision. Change them in both repositories together; CrossBar's `script/compare_chronicles.py` checks them.

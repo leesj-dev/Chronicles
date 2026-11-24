@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Apply published rates tokscale-core leaves out: Claude fast mode, Codex Ultrafast, GPT-5.5 Fast at 2.5x, and free Codex auto-review from October 6, 2026. The shared files `events.rs`, `report.rs` and `rules.rs` are identical in CrossBar.
+- Count reasoning tokens in output and totals again; tokscale-core reports them apart from output.
 - Replace the Python server with the Rust `chronicles` binary. Use `serve` for `server.py`, `export PATH` for `server.py --export PATH`, `sync` for `sync.py`, and `report` for the former standalone engine command.
 - Remove Cursor usage collection, including automatic dashboard history and CSV import. Cursor usage is available only through its private dashboard API, which tokscale-core does not fetch.
 - SSH sync runs the same collector on the other Mac and imports costs. Event IDs deduplicate usage across devices. Run sync again to price old imports.

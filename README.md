@@ -128,7 +128,7 @@ Requests/calls treats each message alike for approximate usage-pattern compariso
 
 tokscale-core uses the cost the source reports when available. Otherwise, it estimates the cost per message at current rates from LiteLLM, OpenRouter and models.dev. The totals represent API-equivalent usage costs. Records without a reported cost or an applicable rate stay unpriced and are counted in a coverage note. See [docs/cost-and-hourly.md](docs/cost-and-hourly.md).
 
-Cached input stays separate from uncached input; reasoning tokens follow tokscale-core's accounting.
+Cached input stays separate from uncached input; output includes reasoning tokens.
 
 ## Project structure
 
