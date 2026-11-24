@@ -67,8 +67,15 @@ public enum UsageMetric: String, CaseIterable, Codable, Identifiable, Sendable {
     }
     public func formatted(_ value: Double, average: Bool = false) -> String {
         if self != .requests && self != .rounds {
-            for (size, suffix) in [(1e9, "B"), (1e6, "M"), (1e3, "K")] where abs(value) >= size {
-                return String(format: "%.2f%@", locale: Locale(identifier: "en_US"), value / size, suffix)
+            let magnitude = abs(value)
+            if magnitude >= 999_950_000 {
+                return String(format: "%.2fB", locale: Locale(identifier: "en_US"), value / 1e9)
+            }
+            if magnitude >= 999_950 {
+                return String(format: "%.1fM", locale: Locale(identifier: "en_US"), value / 1e6)
+            }
+            if magnitude >= 1e3 {
+                return String(format: "%.1fK", locale: Locale(identifier: "en_US"), value / 1e3)
             }
         }
         return value.formatted(.number.locale(Locale(identifier: "en_US")).precision(.fractionLength(0...(average && self == .requests ? 1 : 2))))

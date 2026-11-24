@@ -47,19 +47,20 @@ private struct TimelineDrawing: View, Equatable {
     var body: some View {
         Canvas { context, _ in
             let plot = layout.plot
-            for index in 0...4 {
-                let fraction = Double(index) / 4
-                let y = plot.maxY - plot.height * fraction
+            let ticks = timeline.yTicks()
+            let scale = max(1.0, ticks.last?.value ?? Double(timeline.maximum))
+            for tick in ticks {
+                let y = plot.maxY - plot.height * tick.value / scale
                 var line = Path(); line.move(to: CGPoint(x: plot.minX, y: y)); line.addLine(to: CGPoint(x: plot.maxX, y: y))
                 context.stroke(line, with: .color(Design.line), lineWidth: 0.5)
-                let label = Text(timeline.metric.formatted(Double(timeline.maximum) * fraction))
+                let label = Text(tick.label)
                     .font(.geist(size: 10)).foregroundStyle(Design.muted)
                 context.draw(label, at: CGPoint(x: plot.minX - 10, y: y), anchor: .trailing)
             }
             let step = plot.width / Double(max(1, timeline.days.count))
             for segment in timeline.segments {
-                let bottom = plot.maxY - plot.height * Double(segment.lower) / Double(timeline.maximum)
-                let top = plot.maxY - plot.height * Double(segment.upper) / Double(timeline.maximum)
+                let bottom = plot.maxY - plot.height * Double(segment.lower) / scale
+                let top = plot.maxY - plot.height * Double(segment.upper) / scale
                 let bar = CGRect(x: plot.minX + (Double(segment.dayIndex) + 0.1) * step, y: top, width: step * 0.8, height: bottom - top)
                 context.fill(Path(bar), with: .color(modelColor(segment.model)))
             }

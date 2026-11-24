@@ -81,8 +81,11 @@ func namesColorsAndNumberFormatsMatchWebConventions() throws {
     try expect(ModelIdentity.rgb("copilot/gpt-5.4").blue == ModelIdentity.rgb("gpt-5.4").blue)
     try expect(ModelIdentity.rgb("gpt-5.6-sol").blue != ModelIdentity.rgb("gpt-5.6-luna").blue)
     try expect(UsageMetric.requests.formatted(11680) == "11,680")
-    try expect(UsageMetric.total.formatted(130500000) == "130.50M")
-    try expect(UsageMetric.input.formatted(1000000) == "1.00M")
+    try expect(UsageMetric.total.formatted(2_600_000_000) == "2.60B")
+    try expect(UsageMetric.total.formatted(392_000_000) == "392.0M")
+    try expect(UsageMetric.total.formatted(130500000) == "130.5M")
+    try expect(UsageMetric.input.formatted(1000000) == "1.0M")
+    try expect(UsageMetric.output.formatted(11680) == "11.7K")
     try expect(UsageMetric.requests.formatted(49.06, average: true) == "49.1")
 }
 
