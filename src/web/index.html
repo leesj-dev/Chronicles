@@ -161,12 +161,10 @@
     <details class="method">
       <summary>How these records are counted</summary>
       <p>
-        Requests / calls treats each saved record as one unit across
-        harnesses: Codex usage reports, Claude response messages, Copilot user
-        requests, Antigravity generation calls, Grok completed events per
-        model, OpenCode completed messages, and Cursor export rows. Copilot
-        response rounds count the saved tool-call rounds separately. Missing
-        token values stay unknown and contribute only to count metrics. Daily
+        Requests / calls treats each message the engine reads as one unit,
+        so a harness that saves one record per turn
+        and one that saves one per model call are not directly comparable.
+        Daily
         averages include days with no activity. Model transitions start a
         chapter when a new model has at least 3 records and 0.5% of requests
         in the selected range; boundaries are at least 7 days apart. These are
@@ -174,7 +172,7 @@
         history.
       </p>
       <h3>API-equivalent cost (USD)</h3>
-      <p>API-equivalent estimate at published standard, short-context text-token rates. Not subscription spending or a bill. Excludes long-context premiums, fast/batch modes, tools, media, tax and cache storage. Cache writes use the default 5-minute rate where supported. Older records use this same price snapshot, not historical rates. Third-party hosting may have different prices.</p><p>Haiku 5.5 uses its ≤100k prompt base rate. Gemini 4 Argon uses the introductory rate through 2026-11-30; Gemini 3.8 Flash through 2026-12-31. DeepSeek uses peak rates as a consistent comparison. Meta models use Together AI reference rates; unlisted hosting variants remain unpriced.</p><p>History labels Gemini 3 Flash A and Opus 4.6 Thinking use their base model’s API-equivalent rates; original model labels are preserved. Gemini 3.8 Flash variants are merged into Gemini 3.8 Flash.</p><p id="price-sources"></p>
+      <p>Each message is priced on its own by tokscale-core at current rates, including long-context tiers, 1-hour cache writes, reasoning tokens and service tiers. Rates come from LiteLLM, OpenRouter and models.dev as tokscale-core resolves them. When a source records a cost, tokscale-core uses that amount. These are API-equivalent estimates at current rates, not subscription spending or a bill; older records use today's rates. Records without a reported cost or an applicable rate stay unpriced and are counted in the coverage note, as are events imported from another device before costs were recorded (run sync again).</p>
     </details>
   </main>
 </body>

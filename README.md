@@ -2,7 +2,7 @@
 
 **Your AI usage story across models, harnesses, and time.**
 
-Chronicles is an open-source dashboard for exploring your AI usage history. Compare daily model usage, see when your model mix changed, and bring together records from multiple devices. It runs locally with Python’s standard library and vanilla JavaScript—no account, installation step, build process, or third-party runtime packages required.
+Chronicles is an open-source dashboard for exploring your AI usage history. Compare daily model usage, see when your model mix changed, and bring together records from multiple devices. The `chronicles` Rust binary serves the embedded vanilla JavaScript dashboard and collects local history. No account or Python installation is required.
 
 ### Daily timeline
 
@@ -37,23 +37,24 @@ The native app is not yet at feature parity with the web version. See the [port 
 
 ## Quick start
 
-Requires **Python 3.10+** and a modern browser. Node.js 20+ is optional for development checks. Copilot and Antigravity discovery currently targets macOS; other adapters use their provider’s standard data locations.
+Requires a modern browser and **Rust 1.98** (installed through [rustup](https://rustup.rs); `engine/rust-toolchain.toml` selects it). Node.js 20+ is optional for development checks. The first build downloads tokscale-core and takes a few minutes.
 
 ```sh
 git clone https://github.com/leesj-dev/Chronicles.git
 cd Chronicles
-python3 src/server.py
+(cd engine && cargo build --release --locked)
+engine/target/release/chronicles serve
 ```
 
-Open [localhost:8768](http://127.0.0.1:8768/). The first scan can take a while for large histories; later scans reuse cached files.
+Open [localhost:8768](http://127.0.0.1:8768/). The first scan can take a while for large histories.
 
 To explore fictional sample data:
 
 ```sh
-python3 src/server.py --demo
+engine/target/release/chronicles serve --demo
 ```
 
-If no local usage records are found, the app automatically shows a preview demo with a clear notice. Refresh checks for local records again. Demo screenshots and `examples/demo.json` contain fictional records only.
+`--offline` makes the engine price from cached rates only. The same flag is available on `export`, `report`, and `sync`. If no local usage records are found, the app automatically shows a preview demo with a clear notice. Refresh checks for local records again. Demo screenshots and `examples/demo.json` contain fictional records only.
 
 ## Explore your history
 
@@ -63,31 +64,30 @@ If no local usage records are found, the app automatically shows a preview demo 
 - **Filters:** select models and harnesses individually or select/deselect all. Newly found models are selected automatically; models you deselect stay off. When upgrading from an older saved selection, current models are selected once because the old settings did not track which models had been seen. Only harnesses with loaded usage records appear; changing chart filters keeps that list stable.
 - **Summary and models:** see the selected-period total, daily average, and model count beside the chart. Toggle models from the list; on small screens, the panels stack vertically.
 - **Numbers:** request counts stay unabridged (for example, `11,680`), and request averages use at most one decimal place. Abbreviated token values use two decimal places (for example, `130.50M`).
-- **Metrics:** requests/calls, total/input/output tokens, cache read/write, and Copilot response rounds. All visualizations use the same metrics and colors.
+- **Metrics:** requests/calls, total/input/output tokens, cache read/write, and estimated cost. All visualizations use the same metrics and colors.
 - **Date range:** drag either endpoint, choose dates in the calendar popovers, or choose a preset. Calendars support month navigation and keyboard selection and disable dates outside the available or selected range.
 - **Chapter boundaries:** model transitions, 7-day intervals, or calendar months.
-- **Export CSV:** exports the current selection; missing token counts remain blank.
+- **Export CSV:** exports the current selection, including estimated cost and the number of unpriced records.
 - **Appearance:** automatically follows system light/dark mode.
 
 Transition chapters begin when a new model appears with at least 3 records and 0.5% of selected requests. Boundaries stay at least 7 days apart. Filtering recalculates chapters, and daily averages include inactive days.
 
 ## Supported sources
 
-Native history adapters support seven harnesses:
+Chronicles collects through the Rust engine in [`engine/`](engine/README.md), which reads local history with [tokscale-core](https://github.com/junhoyeo/tokscale)'s parsers and prices every message. One requests/calls unit is one message the engine reads. Main harnesses:
 
-| Harness | History source | One requests/calls unit |
-| --- | --- | --- |
-| Codex | `~/.codex/sessions` and `archived_sessions`, including `.jsonl.zst` archives | Unique token-usage report |
-| Claude Code | `~/.claude/projects` | Response message carrying usage |
-| Copilot | macOS VS Code `workspaceStorage/*/chatSessions` | Saved user request with a result |
-| Antigravity | `~/.gemini/antigravity*/conversations/*.db` | Generation metadata record |
-| Cursor | Official account usage export or imported CSV | Exported aggregate row |
-| Grok | `~/.grok/sessions/**/*.jsonl` | Completed event per model |
-| OpenCode | `~/.local/share/opencode/opencode*.db`, v1 and v2 tables | Completed assistant/compaction message |
+| Harness | Notes |
+| --- | --- |
+| Codex | Sessions and archived sessions, including compressed archives |
+| Claude Code | Response messages carrying usage |
+| Copilot, Antigravity (IDE extension and CLI, shown as one harness), Grok, OpenCode | Read by the engine |
+| Aside, Gemini CLI, Amp and others | Local history from tokscale-core parsers. The page uses the display names supplied by the engine. |
 
-`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `GROK_HOME`, `OPENCODE_DATA_DIR`, and `XDG_DATA_HOME` override their respective data locations.
+See the [engine README](engine/README.md) for collection options. Duplicate records across copies, forks and imported devices are merged by the engine's dedup keys. Deleted or unpreserved records cannot be recovered.
 
-Codex may compress older rollouts into `.jsonl.zst` when migrating to paginated history. Chronicles streams these archives alongside active JSONL files, using their original timestamps, models, and token counters. Duplicate reports across compressed, plain, and imported records still merge. No saved Chronicles report is required. Compressed history requires Python 3.14+ (standard-library Zstandard support), or a `zstd` executable on `PATH` with older Python versions. For example, install `zstd` with `brew install zstd` on macOS. Missing decompression support or unreadable archives are reported as a partial scan; provider files are never modified.
+Cursor usage is available only through its private dashboard API, so Chronicles omits it from local scans and SSH sync. Chronicles no longer reads old `.local/cursor-history.json` or `.local/imports/cursor.csv` files.
+
+On macOS and Linux, parser diagnostics beginning with `Warning:` appear in the page’s error list.
 
 ### History & account limits
 
@@ -97,80 +97,68 @@ Only available metrics are shown, and this panel is hidden in demo mode. Snapsho
 
 Quotas, balances, and spend windows do not become dated model records. The bridge supplies no historical model ledger for Devin, Ollama, OpenRouter, or Z.ai. Ollama here refers to Ollama Cloud limits. Currency values stay separate from token and request totals.
 
-### Cursor history
-
-Chronicles can fetch Cursor’s official usage export using the existing app login, read from local state or the macOS `cursor-access-token` Keychain entry. History starts at January 1, 2025 by default; override with `CHRONICLES_CURSOR_START=YYYY-MM-DD`.
-
-Normalized counters are cached for five minutes and preserved in `.local/cursor-history.json`. Credentials remain in memory and are sent only to Cursor’s HTTPS export endpoint; redirects are refused. Authentication failures retain cached history. Sign in through Cursor to renew access. Available history depends on Cursor’s export retention.
-
-You can also place a Cursor usage CSV at `.local/imports/cursor.csv`. Overlapping automatic and manual records deduplicate.
-
 ## Timezone and other devices
 
 Dates use the system timezone automatically (for example, `Asia/Seoul` on a Mac configured for Korean time). Chronicles checks `TZ`, `/etc/localtime`, and `/etc/timezone`, falling back to UTC if no IANA timezone is available. Restart the server after changing the system timezone. To override it, set an IANA timezone before launching:
 
 ```sh
-CHRONICLES_TIMEZONE=Asia/Seoul python3 src/server.py
+CHRONICLES_TIMEZONE=Asia/Seoul engine/target/release/chronicles serve
 ```
 
-To import another device, configure an SSH host with batch authentication and Python 3.10+, then run:
+To import another Mac, configure an SSH host with batch authentication that runs macOS on the same architecture as this Mac, then run:
 
 ```sh
-CHRONICLES_TIMEZONE=Asia/Seoul python3 src/sync.py --host YOUR_SSH_HOST
+engine/target/release/chronicles sync --host YOUR_SSH_HOST
 ```
 
-Use the same timezone for the server and sync. Sync automatically passes this computer's resolved timezone to the remote adapters. The adapters execute over SSH without installing files remotely. Only normalized usage metadata is saved in `.local/imports/macmini.json`; conversation text and credentials are not copied. One remote snapshot is supported, and syncing another host replaces it. Duplicate local and remote records merge.
+Sync defaults to the SSH host `macmini`. It copies the local binary to `~/.cache/chronicles/chronicles` on the remote when its SHA-256 differs, runs `chronicles report` there, and converts its output with the same code the local scan uses, so shared events get identical ids and merge. A remote of another OS or architecture is refused. Only normalized usage counters and costs are saved in `.local/imports/macmini.json`; conversation text and credentials are not copied. Dates use each report's timezone setting on this computer. One remote snapshot is supported, and syncing another host replaces it. Imports written before costs were recorded load as unpriced rows; run sync again to fill in costs.
 
 ## Standalone HTML
 
 ```sh
-python3 src/server.py --export exports/Chronicles.html
-python3 src/server.py --demo --export exports/demo.html
+engine/target/release/chronicles export exports/Chronicles.html
+engine/target/release/chronicles export exports/demo.html --demo
 ```
 
 Open the resulting file directly in a browser. All three visualizations and their filters work offline. HTML snapshots contain the complete exported record set and available account metrics; CSV exports follow the current selection. Keep personal snapshots private unless you intend to share your usage history.
 
 ## Counting and coverage
 
-Requests/calls treats each saved unit alike for approximate usage-pattern comparisons. It does not imply equal work, compute, or billing. Copilot response rounds count saved tool-call rounds and are a separate Copilot-only metric.
+Requests/calls treats each message alike for approximate usage-pattern comparisons. It does not imply equal work, compute, or billing. Harnesses that save one record per turn and ones that save one per model call are not directly comparable.
 
-Older Copilot records may preserve dates and models without tokens. They count toward requests and available rounds, never invented token totals. Legacy encrypted Antigravity `.pb` conversations are excluded and reported. Deleted or unpreserved records cannot be recovered.
+tokscale-core uses the cost the source reports when available. Otherwise, it estimates the cost per message at current rates from LiteLLM, OpenRouter and models.dev. The totals represent API-equivalent usage costs. Records without a reported cost or an applicable rate stay unpriced and are counted in a coverage note. See [docs/cost-and-hourly.md](docs/cost-and-hourly.md).
 
-Cached input stays separate from uncached input, and reasoning is not counted twice. Claude cache read/write remain separate; Copilot has no preserved cache breakdown. OpenCode’s separately stored reasoning tokens contribute to output.
+Cached input stays separate from uncached input; reasoning tokens follow tokscale-core's accounting.
 
 ## Project structure
 
 ```text
-src/
-  server.py          Local HTTP server, collection, and HTML export
-  sync.py            Read-only SSH import
-  paths.py           Source and repository data roots
-  adapters/          Provider-specific history adapters and account integrations
-  web/               HTML, CSS, vanilla JavaScript, and shared analytics
+engine/              Chronicles Rust crate
+  src/               Collector, HTTP server, export, and SSH sync
+  tests/fixtures/    Fictional JSON captured from the previous implementation
+src/web/             Embedded HTML, CSS, vanilla JavaScript, and analytics
 examples/            Fictional demo records
-tests/               Analytics, adapters, collection, and export tests
-docs/                Demo screenshots
-.local/              Private caches and imports (gitignored)
+tests/               JavaScript tests
+docs/                Demo screenshots and accounting documentation
+.local/              Private caches and imports when run from a checkout
 ```
 
-Every history adapter exposes `scan() -> ScanResult`. Results contain normalized events, file counts, errors, skipped records, and coverage metadata. The collector handles date conversion, deduplication, device merging, and aggregation. Account-limit snapshots remain a separate integration.
-
-Source assets live under `src/`; private data stays in the repository’s `.local/` directory, independent of the working directory.
+Chronicles looks for a checkout above the working directory, then above the binary. When installed elsewhere, it stores data under `~/Library/Application Support/Chronicles` on macOS or `${XDG_DATA_HOME:-$HOME/.local/share}/Chronicles` on Linux. Within that root it uses `.local/engine` for tokscale caches and `.local/imports/macmini.json` for the SSH snapshot. Set `TOKSCALE_CONFIG_DIR` to override the cache directory.
 
 ## Development
 
-No installation step is needed:
+Use `serve --web-dir src/web` to serve browser assets from disk during development. Rebuild and restart the binary to pick up changes to embedded assets and demo data.
 
 ```sh
 npm run check
-npm test
-npm run test:collectors
+node --test tests/
+(cd engine && cargo test --locked)
 ```
 
-Python tests use standard-library `unittest`; JavaScript tests use Node’s built-in test runner. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+Rust tests use fictional reports, an isolated home, and fake SSH commands. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## Privacy and license
 
-The server binds only to loopback, validates Host, serves an explicit asset allowlist, and uses a same-origin content policy. No analytics, external fonts, remote scripts, or conversation uploads. Private imports, exports, and Python caches are gitignored. Cursor’s optional account adapter contacts Cursor directly; other account metrics come from OpenUsage over loopback.
+The server binds only to loopback, validates Host, serves an explicit asset allowlist, and uses a same-origin content policy. No analytics, external fonts, remote scripts, or conversation uploads. Private imports, exports, and caches are gitignored. Account-limit metrics come from OpenUsage over loopback.
 
-[MIT](LICENSE). Independent project; not affiliated with OpenAI, Anthropic, GitHub, Google, or the upstream projects. Controls derive from [shadcn-html](https://github.com/codylindley/shadcn-html) under MIT; the full notice is retained in `src/web/shadcn.css`. Nova styling follows [shadcn/ui](https://github.com/shadcn-ui/ui/blob/main/apps/v4/registry/styles/style-nova.css). Antigravity counter parsing follows the observed format described by [OpenUsage](https://github.com/robinebers/openusage/blob/main/docs/providers/antigravity.md).
+[MIT](LICENSE). Independent project; not affiliated with OpenAI, Anthropic, GitHub, Google, or the upstream projects. Controls derive from [shadcn-html](https://github.com/codylindley/shadcn-html) under MIT; the full notice is retained in `src/web/shadcn.css`. Nova styling follows [shadcn/ui](https://github.com/shadcn-ui/ui/blob/main/apps/v4/registry/styles/style-nova.css).

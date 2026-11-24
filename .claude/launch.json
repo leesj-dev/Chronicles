@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {"name": "chronicles", "runtimeExecutable": "./engine/target/release/chronicles", "runtimeArgs": ["serve", "--port", "8779"], "port": 8779, "autoPort": false}
+  ]
+}

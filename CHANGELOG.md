@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-- Move application code and browser assets into src/; retain private data in the repository root.
+- Replace the Python server with the Rust `chronicles` binary. Use `serve` for `server.py`, `export PATH` for `server.py --export PATH`, `sync` for `sync.py`, and `report` for the former standalone engine command.
+- Remove Cursor usage collection, including automatic dashboard history and CSV import. Cursor usage is available only through its private dashboard API, which tokscale-core does not fetch.
+- SSH sync runs the same collector on the other Mac and imports costs. Event IDs deduplicate usage across devices. Run sync again to price old imports.
+- Remove the page-side price estimate and pricing feeds/snapshots. The engine provides per-message costs and replaces `--offline-pricing` with `--offline` for cached rates. The demo now carries fictional costs.
+- Remove the Copilot response-rounds metric and the missing-token and legacy Antigravity notices, which only the deleted adapters produced.
+- Show harnesses by display name from the server, including ones the page does not know; new harnesses start selected.
+- Keep browser assets in `src/web/` and embed them in the Rust binary. Private data stays in the checkout when running from it.
 - Revise setup, source coverage, architecture and development documentation.
 
 - Unify seven history providers behind provider-specific adapters and a common ScanResult contract.
@@ -16,15 +22,13 @@
 
 - Use the original shadcn-html combobox markup and CSS; remove conflicting control padding and height overrides.
 - Adapt the upstream shadcn-html combobox JavaScript and fix trigger re-click reopening.
-- Fix first Cursor fetch on freshly booted systems with under five minutes of uptime.
 
 - Apply Nova control density and content-measured chapter headers; hide empty source cards and all demo sources.
-- Automatically load Cursor usage history using the existing app login, with private counter-only caching.
 - Replace native dropdown menus with keyboard-accessible shadcn popover/listbox controls.
 - Replace UI controls with vendored shadcn-html semantic tokens and components.
 - Separate selected fills from keyboard focus rings; simplify all/none labels.
 - Add all 11 OpenUsage app providers, with separate account-metric cards via its local API.
-- Collect Grok CLI and OpenCode v1/v2 history; import Cursor usage CSVs.
+- Collect Grok CLI and OpenCode v1/v2 history.
 - Preserve migration/copy deduplication, token bucket accounting and standalone offline exports.
 
 ## 0.1.0

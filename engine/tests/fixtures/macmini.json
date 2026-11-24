@@ -1,0 +1,46 @@
+{
+  "schema": "usage-atlas.events.v1",
+  "updatedAt": "2026-11-02T00:00:00+00:00",
+  "errors": [
+    "fixed warning"
+  ],
+  "events": [
+    {
+      "id": "68f08e0484325cbd021c700aab5e93cf8fb9660ea02530979cb5380e10cfef42",
+      "provider": "claude",
+      "model": "claude-x",
+      "date": "2026-10-17",
+      "input": 105,
+      "output": 1,
+      "priced": 1,
+      "cost": 0.876543219
+    },
+    {
+      "id": "legacy",
+      "provider": "claude",
+      "date": "2026-05-01",
+      "model": "old",
+      "input": 7,
+      "output": 1,
+      "rounds": 3
+    },
+    {
+      "id": "invalid-timestamp",
+      "provider": "claude",
+      "date": "2026-04-01",
+      "timestamp": "bad",
+      "model": "old",
+      "output": 2
+    },
+    {
+      "id": "remote-only",
+      "provider": "codex",
+      "date": "2026-11-02",
+      "timestamp": "2026-11-01T07:00:00+00:00",
+      "model": "remote",
+      "input": 12,
+      "priced": 1,
+      "cost": 1.25
+    }
+  ]
+}

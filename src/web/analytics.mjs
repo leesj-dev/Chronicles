@@ -1,5 +1,8 @@
-import {estimateCost, formatMoney, PRICE_DATE, PRICE_SOURCES} from "./pricing.mjs";
-export {formatMoney, PRICE_DATE, PRICE_SOURCES};
+export function formatMoney(usd) {
+  if (!Number.isFinite(usd)) return "—";
+  if (usd > 0 && usd < 0.01) return "<$0.01";
+  return new Intl.NumberFormat("en", {style: "currency", currency: "USD", maximumFractionDigits: 2}).format(usd);
+}
 // A missing known list is a legacy selection: it cannot distinguish deselected models from new ones.
 export function reconcileModels(available, selected, known) {
   const seen = new Set(known || []);
@@ -30,7 +33,6 @@ export const METRICS = {
   output: "Output tokens",
   cacheRead: "Cache read tokens",
   cacheWrite: "Cache write tokens",
-  rounds: "Copilot response rounds",
   cost: "Estimated cost",
 };
 export const addDays = (d, n) =>
@@ -62,24 +64,43 @@ export const compact = (n) => compactFormatter.format(n);
 export const exact = (n) => exactFormatter.format(n);
 const countFormatter = new Intl.NumberFormat("en", {maximumFractionDigits: 2});
 export function formatMetric(value, metric) {
-  if (["requests", "rounds"].includes(metric)) return countFormatter.format(value);
-  for (const [size, unit] of [[1e9, "B"], [1e6, "M"], [1e3, "K"]])
-    if (Math.abs(value) >= size) return (value / size).toFixed(2) + unit;
+  if (metric === "requests") return countFormatter.format(value);
+  const abs = Math.abs(value);
+  if (abs >= 999_950_000) return (value / 1e9).toFixed(2) + "B";
+  if (abs >= 999_950) return (value / 1e6).toFixed(1) + "M";
+  if (abs >= 1e3) return (value / 1e3).toFixed(1) + "K";
   return countFormatter.format(value);
 }
 export const formatAverage = (value, metric) => metric === "requests" ? exact(value) : formatMetric(value, metric);
+const AXIS_STEPS = [
+  [1, 0], [1.5, 7], [2, 2], [2.5, 3], [3, 5], [4, 4], [5, 1], [6, 6], [8, 8], [10, 0], [15, 7],
+];
 export function rankingAxis(value, fractional = false) {
-  if (fractional && value > 0 && value < 5) {
-    const unit = 10 ** Math.floor(Math.log10(value / 5));
-    const step = [1, 2, 5, 10].find(size => size * unit >= value / 5) * unit;
-    const intervals = Math.ceil(value / step);
-    return {maximum: intervals * step, ticks: Array.from({length: intervals + 1}, (_, i) => i * step)};
+  const maxIntervals = 5;
+  const minStep = fractional ? 0 : 1;
+  const largest = fractional && value > 0 ? value : Math.max(1, value);
+  const magnitude = 10 ** Math.floor(Math.log10(largest / maxIntervals));
+  let best = null;
+  for (const [multiplier, rank] of AXIS_STEPS) {
+    const rawStep = Math.max(minStep, multiplier * magnitude);
+    if (!fractional && Math.abs(rawStep - Math.round(rawStep)) > 1e-6) continue;
+    const step = fractional ? rawStep : Math.round(rawStep);
+    const intervals = Math.max(1, Math.ceil(largest / step - 1e-9));
+    if (intervals > maxIntervals) continue;
+    const maximum = intervals * step;
+    const tooFew = intervals >= 3 ? 0 : 3 - intervals;
+    if (
+      !best ||
+      maximum < best.maximum - 1e-9 ||
+      (Math.abs(maximum - best.maximum) <= 1e-9 &&
+        (tooFew < best.tooFew ||
+          (tooFew === best.tooFew &&
+            (rank < best.rank || (rank === best.rank && intervals < best.intervals)))))
+    ) {
+      best = {step, intervals, maximum, tooFew, rank};
+    }
   }
-  const largest = Math.max(1, value),
-    unit = 10 ** Math.floor(Math.log10(largest / 5)),
-    step = Math.max(1, [1, 2, 5, 10].find(size => size * unit >= largest / 5) * unit),
-    intervals = Math.ceil(largest / step),
-    maximum = intervals * step;
+  const {step, intervals, maximum} = best;
   return {maximum, ticks: Array.from({length: intervals + 1}, (_, index) => index * step)};
 }
 export function modelId(name) {
@@ -93,7 +114,8 @@ export function modelId(name) {
       /(claude-(?:opus|sonnet|haiku|fable|mythos)-\d+)-(\d{1,2})(?=$|-)/,
       "$1.$2",
     )
-    .replace(/^gemini[- ]3\.8[- ]flash(?=$|[- ](?!lite\b)).*/, "gemini-3.8-flash");
+    .replace(/^gemini[- ](3\.[5-8])[- ]flash(?=$|[- ](?!lite\b|cyber\b)).*/, "gemini-$1-flash")
+    .replace(/^gemini[- ]4[- ](hydrogen|argon|neon|carbon)(?=$|[- ](?!lite\b|cyber\b)).*/, "gemini-4-$1");
 }
 export function modelName(name) {
   let n = modelId(name).replace(/^claude-/, "");
@@ -105,7 +127,7 @@ export function modelName(name) {
       .replace(/\b(astra|sol|terra|luna)\b/g, word => word[0].toUpperCase() + word.slice(1));
   if (/^gemini[- ]/.test(n))
     return n.replace(/^gemini[- ]/, "Gemini ").replaceAll("-", " ")
-      .replace(/\b(flash|pro|argon)\b/g, word => word[0].toUpperCase() + word.slice(1));
+      .replace(/\b(flash|pro|hydrogen|argon|neon|carbon)\b/g, word => word[0].toUpperCase() + word.slice(1));
   if (/^grok[- ]/.test(n)) return n.replace(/^grok/, "Grok").replaceAll("-", " ");
   if (/^kimi[- ]/.test(n)) return n.replace(/^kimi-k/, "Kimi K").replaceAll("-", " ").replace(/\bcode\b/, "Code");
   if (/^glm-/.test(n)) return n.toUpperCase().replace(/-FLASHX?/, word => word === "-FLASHX" ? " FlashX" : " Flash");
@@ -132,22 +154,22 @@ export function modelColor(name) {
   let hue = 220,
     lightness = 55;
   if (n.includes("opus")) {
-    hue = 275;
+    hue = 276;
     lightness = v >= 5.5 ? 48 : v >= 5 ? 60 : v >= 4.8 ? 72 : 84;
   } else if (n.includes("sonnet")) {
-    hue = 26;
+    hue = 34;
     lightness = v >= 5.5 ? 48 : v >= 5 ? 60 : v >= 4.5 ? 72 : 84;
   } else if (n.includes("haiku")) {
-    hue = 95;
+    hue = 78;
     lightness = v >= 5.5 ? 48 : v >= 5 ? 60 : v >= 4.5 ? 72 : v >= 3.5 ? 80 : 88;
   } else if (n.includes("gpt")) {
     hue = n.includes("terra")
-      ? 45
+      ? 54
       : n.includes("luna")
-        ? 145
+        ? 148
         : n.includes("astra")
-          ? 355
-          : 215;
+          ? 352
+          : 218;
     lightness =
       v >= 6.1
         ? 43
@@ -161,9 +183,35 @@ export function modelColor(name) {
                 ? 75
                 : 83;
   } else if (n.includes("gemini")) {
-    hue = 180;
-    lightness = v >= 3.8 ? 48 : v >= 3.7 ? 60 : v >= 3.1 ? 72 : 84;
-  } else if (n.includes("fable")) hue = 325;
+    if (n.includes("carbon")) {
+      hue = 14;
+      lightness = 52;
+    } else if (n.includes("neon") || n.includes("argon") || n.includes("pro")) {
+      hue = 246;
+      lightness = n.includes("neon")
+        ? 48
+        : n.includes("argon")
+          ? 61
+          : v >= 3.1
+            ? 74
+            : 84;
+    } else {
+      hue = 184;
+      lightness = n.includes("hydrogen")
+        ? 42
+        : v >= 3.8
+          ? 49
+          : v >= 3.7
+            ? 56
+            : v >= 3.6
+              ? 63
+              : v >= 3.5
+                ? 70
+                : v >= 3.1
+                  ? 77
+                  : 84;
+    }
+  } else if (n.includes("fable")) hue = 322;
   else {
     hue = [...n].reduce((s, c) => s * 31 + c.charCodeAt(0), 0) % 360;
   }
@@ -172,34 +220,16 @@ export function modelColor(name) {
 export function normalize(data) {
   const rows = (data.hourlyRows || data.rows).map((r) => ({
     ...r,
+    sourceModel: r.model,
     model: modelId(r.model),
     requests: r.requests || 0,
-    rounds: r.rounds || 0,
-    tokenRecorded: true,
-    missing: 0,
-    roundMissing:
-      r.provider === "copilot"
-        ? Math.max(0, (r.requests || 0) - (r.roundRecords || 0))
-        : 0,
   }));
-  for (const r of data.missing || [])
-    rows.push({
-      ...r,
-      model: modelId(r.model),
-      requests: 1,
-      rounds: r.rounds || 0,
-      total: 0,
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      tokenRecorded: false,
-      missing: 1,
-      roundMissing: r.rounds ? 0 : 1,
-    });
   return rows.filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date)).map(r => {
-    const cost = estimateCost(r);
-    return {...r, hour: hourKey(r.hour || r.timestamp, data.timezone || "UTC"), cost, costMissing: cost === null ? r.requests : 0};
+    // Rows carry the cost the collector priced per message; rows without costRequests (old imports) are unpriced.
+    const served = Number.isFinite(r.costRequests);
+    const cost = served && r.costRequests > 0 ? r.cost : null;
+    const costMissing = served ? Math.max(0, r.requests - r.costRequests) : r.requests;
+    return {...r, hour: hourKey(r.hour || r.timestamp, data.timezone || "UTC"), cost, costMissing};
   });
 }
 const hourFormatters = new Map();
@@ -242,9 +272,14 @@ export function timelineBuckets(rows, metric, start, end, timeZone, hourly = fal
   return map;
 }
 // Availability reflects loaded history, independent of chart filters and quotas.
-export function historyHarnesses(rows) {
+export const harnessName = (id, names) => HARNESSES[id] || names?.[id] || id;
+// Known harnesses keep their fixed order; any other harness follows alphabetically.
+export function historyHarnesses(rows, names) {
   const present = new Set(rows.filter(row => row.requests > 0 || row.total > 0).map(row => row.provider));
-  return Object.entries(HARNESSES).filter(([key]) => present.has(key));
+  const known = Object.keys(HARNESSES).filter(key => present.has(key));
+  const others = [...present].filter(key => !(key in HARNESSES))
+    .map(key => [key, harnessName(key, names)]).sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
+  return [...known.map(key => [key, HARNESSES[key]]), ...others];
 }
 export function filterRows(
   rows,
@@ -269,14 +304,12 @@ export function aggregate(rows, metric) {
         model: key,
         value: 0,
         requests: 0,
-        missing: 0,
         costMissing: 0,
         harnesses: new Set(),
       });
     const a = map.get(key);
     a.value += r[metric] || 0;
     a.requests += r.requests;
-    a.missing += r.missing;
     a.costMissing += r.costMissing || 0;
     a.harnesses.add(r.provider);
   }
@@ -362,8 +395,6 @@ export function summarize(rows, metric, start, end) {
     models,
     total,
     average: total / daysBetween(start, end),
-    missing: rows.reduce((s, r) => s + r.missing, 0),
-    roundMissing: rows.reduce((s, r) => s + r.roundMissing, 0),
     costMissing: rows.reduce((s, r) => s + (r.costMissing || 0), 0),
     requests: rows.reduce((s, r) => s + r.requests, 0),
   };

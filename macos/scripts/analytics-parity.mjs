@@ -14,7 +14,7 @@ const reports = [
   {rows: [
     {date: '2026-01-01', provider: 'codex', model: 'gpt-5.4', requests: 2, total: 100, device: 'shared'},
     {date: '2026-01-01', provider: 'copilot', model: 'copilot/gpt-5.4', requests: 1, total: 50, rounds: 3, device: 'this-mac'},
-  ], missing: [{date: '2026-01-03', provider: 'copilot', model: 'claude-3-5-haiku', rounds: 7, device: 'this-mac'}]},
+  ]},
 ];
 let checks = 0;
 try {
@@ -24,7 +24,7 @@ try {
     const actual = JSON.parse(execFileSync(binary, ['--report', path, '--analytics'], {encoding: 'utf8'}));
     const rows = normalize(reports[i]);
     const dates = rows.map(row => row.date).sort(), start = dates[0], end = dates.at(-1);
-    for (const metric of ['requests', 'total', 'input', 'output', 'cacheRead', 'cacheWrite', 'rounds']) {
+    for (const metric of ['requests', 'total', 'input', 'output', 'cacheRead', 'cacheWrite']) {
       const totals = aggregate(rows, metric).map(({model, value}) => ({model, value}));
       const daily = [];
       for (let day = start; day <= end; day = addDays(day, 1)) {
@@ -38,4 +38,4 @@ try {
     }
   }
 } finally { rmSync(directory, {recursive: true, force: true}); }
-console.log(`Native/web analytics parity: ${checks} comparisons passed (demo + missing-token fixture).`);
+console.log(`Native/web analytics parity: ${checks} comparisons passed (demo + shared fixture).`);

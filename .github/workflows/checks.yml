@@ -7,16 +7,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - run: rustup toolchain install 1.98.0 --profile minimal --component clippy
       - run: npm run check
       - run: npm test
       - run: npm run test:collectors
-      - run: python3 src/server.py --demo --export /tmp/Chronicles-demo.html
+      - run: cd engine && cargo run --locked -- export /tmp/Chronicles-demo.html --demo
   native:
     runs-on: macos-15
     steps:
@@ -24,12 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
       - run: swift build --package-path macos
       - run: macos/.build/debug/chronicles-core-checks
       - run: node macos/scripts/analytics-parity.mjs
-      - run: python3 macos/scripts/collector-parity.py
       - run: macos/scripts/build-app.sh
       - run: swift macos/scripts/font-check.swift

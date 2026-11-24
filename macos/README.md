@@ -25,7 +25,7 @@ The app reads local Codex and Claude Code histories on launch. If no records are
 - Native demo resource packaged from `examples/demo.json`.
 - The web app's existing Geist variable font, bundled as a native TTF with its SIL OFL license. CoreText applies the original weight axis; no font conversion runs during builds or app launch.
 
-Still to port: Model chapters, Ranking race, the remaining five history adapters, Cursor authentication/cache, OpenUsage account metrics, SSH import, persisted preferences, and standalone report export. Account metrics in imported JSON are currently ignored. Local scanning is explicitly limited to Codex and Claude Code. Existing web/Python sources remain the behavioral reference during migration.
+Still to port: Model chapters, Ranking race, additional history sources, OpenUsage account metrics, SSH import, persisted preferences, and standalone report export. Account metrics in imported JSON are currently ignored. Local scanning is explicitly limited to Codex and Claude Code. The web dashboard and Rust app remain the behavioral reference during migration.
 
 ## Architecture
 
@@ -55,12 +55,11 @@ This first build is unsandboxed so it can discover the existing history location
 swift build --package-path macos
 macos/.build/debug/chronicles-core-checks
 node macos/scripts/analytics-parity.mjs
-python3 macos/scripts/collector-parity.py
 macos/scripts/build-app.sh
 swift macos/scripts/font-check.swift
 ```
 
-The standalone core checks run with Command Line Tools, without installing XCTest or Swift Testing. They cover dates/DST, missing tokens, filters/shared devices, inactive days, names/colors/formatting, centered timeline hit testing and boundaries, Codex cumulative deltas/resets/archive copies, and Claude deduplication/cache invalidation. The JavaScript differential check compares all seven metrics' model totals, daily values, and averages against the web implementation, using the canonical demo and a missing-token fixture (42 comparisons). The Python differential check uses fictional Codex/Claude histories. The font check registers the packaged font through CoreText and checks regular, medium, semibold and bold weights. Node and Python are development-only reference tools, never app runtime dependencies.
+The standalone core checks run with Command Line Tools, without installing XCTest or Swift Testing. They cover dates/DST, missing tokens, filters/shared devices, inactive days, names/colors/formatting, centered timeline hit testing and boundaries, Codex cumulative deltas/resets/archive copies, and Claude deduplication/cache invalidation. The JavaScript differential check compares all seven metrics' model totals, daily values, and averages against the web implementation, using the canonical demo and a missing-token fixture (42 comparisons). The font check registers the packaged font through CoreText and checks regular, medium, semibold and bold weights. Node is used for the development checks. The legacy `collector-parity.py` script targeted the removed Python collector and is no longer part of verification.
 
 Local verification of this slice: the app was built and launched; metric/harness/date changes and the calendar popover were checked in the native UI. The start-date handle was incremented through its accessibility action. A CSV saved through the native panel was read back and matched the web selection exactly (12 rows, 990,536 tokens, April 21–26 demo selection excluding Claude Code). A real local scan completed across 1,321 files; this proves native collection/read-back, not full parity across all local history. The eight core checks, 42 analytics comparisons, fictional-history collector comparison, and existing 16 JavaScript/24 Python tests passed. CI configuration is added; hosted CI has not been run for these uncommitted changes.
 

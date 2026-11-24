@@ -1,6 +1,7 @@
 import {
   HARNESSES,
   historyHarnesses,
+  harnessName,
   METRICS,
   addDays,
   calendarDate,
@@ -9,8 +10,6 @@ import {
   formatMetric,
   formatAverage,
   formatMoney,
-  PRICE_DATE,
-  PRICE_SOURCES,
   timelineBuckets,
   hourlyBuckets,
   daysBetween,
@@ -69,6 +68,7 @@ function selectedDates() {
 let harnesses = new Set(saved.harnesses || Object.keys(HARNESSES)),
   models = new Set(saved.models || []),
   knownModels = new Set(saved.knownModels || []),
+  knownHarnesses = new Set(saved.knownHarnesses || Object.keys(HARNESSES)),
   isDemo = false;
 function persist() {
   try {
@@ -84,6 +84,7 @@ function persist() {
         harnesses: [...harnesses],
         models: [...models],
         knownModels: [...knownModels],
+        knownHarnesses: [...knownHarnesses],
         excludeReview: $("exclude-review").checked,
       }),
     );
@@ -254,11 +255,6 @@ const systemTheme = matchMedia("(prefers-color-scheme: dark)");
 systemTheme.addEventListener("change", () => {
   if (days.length) render();
 });
-$("price-sources").append(document.createTextNode(`Rates checked ${PRICE_DATE}: `));
-for (const [name, url] of PRICE_SOURCES) {
-  const link = el("a", "", name); link.href = url; link.target = "_blank"; link.rel = "noopener noreferrer";
-  $("price-sources").append(link, document.createTextNode(" · "));
-}
 function controls() {
   if (start && end) hourDate = hourDate && hourDate >= start && hourDate <= end ? hourDate : end;
   const hourly = view === "daily" && interval === "hourly";
@@ -272,7 +268,7 @@ function controls() {
   $("metric").value = metric;
   $("device").value = device;
   $("grouping").value = grouping;
-  const available = historyHarnesses(rows);
+  const available = historyHarnesses(rows, data?.harnessNames);
   const existing = new Map([...$("harnesses").children].map(group => [group.querySelector("button").dataset.focusKey.slice(8), group]));
   const visible = new Set(available.map(([key]) => key));
   for (const [key, group] of existing) if (!visible.has(key)) group.remove();
@@ -355,47 +351,28 @@ function render({racePosition: position = 0} = {}) {
     device,
     excludeReview: $("exclude-review").checked,
   });
-  if (metric === "rounds")
-    activeRows = activeRows.filter((r) => r.provider === "copilot");
   const summary = summarize(activeRows, metric, selectedStart, selectedEnd),
-    isCount = ["requests", "rounds"].includes(metric),
-    noCost = metric === "cost" && summary.costMissing > 0 && summary.costMissing === summary.requests,
-    noTokens = metric !== "cost" && !isCount && summary.missing > 0 && summary.total === 0;
-  $("total").textContent = noCost ? "Unavailable" : noTokens ? "Not recorded" : metricText(summary.total, metric);
-  $("total").title = metric === "cost" ? `${summary.total.toFixed(6)} USD at ${PRICE_DATE} base rates` : exact(summary.total);
+    noCost = metric === "cost" && summary.costMissing > 0 && summary.costMissing === summary.requests;
+  $("total").textContent = noCost ? "Unavailable" : metricText(summary.total, metric);
+  $("total").title = metric === "cost" ? `${summary.total.toFixed(6)} USD from per-message pricing` : exact(summary.total);
   const hourly = view === "daily" && interval === "hourly";
   $("average-caption").textContent = hourly ? "Hourly average" : "Daily average";
   const unknownTime = activeRows.some(r => !r.hour);
   const average = hourly ? summary.total / hourlyBuckets(hourDate, data.timezone || "UTC").length : summary.average;
-  $("average").textContent = noCost || noTokens || (hourly && unknownTime) ? "—" : averageText(average, metric);
+  $("average").textContent = noCost || (hourly && unknownTime) ? "—" : averageText(average, metric);
   $("metric-caption").textContent = METRICS[metric];
   $("model-count").textContent = summary.models.length;
   const notes = [];
   if (metric === "cost") {
     const covered = summary.requests - summary.costMissing;
-    notes.push(`Estimated API-equivalent cost · ${exact(covered)} / ${exact(summary.requests)} records priced (${percentage(covered, summary.requests)}). Base rates checked ${PRICE_DATE}; excludes billing modifiers.`);
-    if (summary.costMissing) notes.push(`${exact(summary.costMissing)} records cannot be priced: missing token details or no verified rate.`);
+    notes.push(`Estimated API-equivalent cost · ${exact(covered)} / ${exact(summary.requests)} records priced (${percentage(covered, summary.requests)}). Per-message pricing from tokscale-core at current rates, or the cost the source reports; not a bill (subscriptions, tax and discounts excluded).`);
+    if (summary.costMissing) notes.push(`${exact(summary.costMissing)} records are unpriced: no verified rate, or imported before costs were recorded (run sync again).`);
   }
   if (hourly && unknownTime) notes.push("Some records have no time. They are included in the separate Unknown time bar; the hourly average is unavailable.");
-  if (summary.missing)
-    notes.push(
-      `${exact(summary.missing)} Copilot requests have no token values. They are included in request counts, but excluded from token totals.`,
-    );
-  if (metric === "rounds" && summary.roundMissing)
-    notes.push(
-      `${exact(summary.roundMissing)} requests have no saved response-round count.`,
-    );
-  if (data.legacyAntigravity && harnesses.has("antigravity"))
-    notes.push(
-      `${data.legacyAntigravity} legacy encrypted Antigravity conversations are not included.`,
-    );
-  if (metric !== "cost" && !isCount && summary.missing && summary.total)
-    notes.push("Token totals are partial.");
   $("notice").textContent = notes.join(" ");
   $("notice").hidden = !notes.length;
   $("chart-empty").hidden = summary.total > 0;
-  $("chart-empty").textContent = noCost ? "No verified prices or complete token values for this selection." : metric === "cost" && summary.requests ? "The priced records have no token cost." : noTokens
-    ? "Token values were not recorded for these requests. Switch to Requests / calls."
+  $("chart-empty").textContent = noCost ? "No verified prices for this selection." : metric === "cost" && summary.requests ? "The priced records have no token cost."
     : "No usage matches these filters. Select a harness or model, or widen the date range.";
   drawMini();
   renderModels();
@@ -423,8 +400,7 @@ function drawMini() {
     device,
     excludeReview: $("exclude-review").checked,
   }))
-    if (metric !== "rounds" || r.provider === "copilot")
-      mini[Math.floor((daysBetween(days[0], r.date) - 1) * count / days.length)] += r[metric] || 0;
+    mini[Math.floor((daysBetween(days[0], r.date) - 1) * count / days.length)] += r[metric] || 0;
   const max = Math.max(metric === "cost" ? Number.EPSILON : 1, ...mini);
   chart.replaceChildren(
     ...mini.map((v) => {
@@ -463,13 +439,11 @@ function renderModels() {
     }
     $("models").append(group);
     const a = totals.get(name);
-    group.hidden = !a || (!a.value && !(metric === "cost" ? a.requests : a.missing && !["requests", "rounds"].includes(metric)));
+    group.hidden = !a || (!a.value && !(metric === "cost" && a.requests));
     button.querySelector(".model-value").textContent = a
           ? a.value
             ? metricText(a.value, metric)
-            : metric === "cost" && a.costMissing ? "Unavailable" : a.missing && !["requests", "rounds"].includes(metric)
-              ? "Not recorded"
-              : "0"
+            : metric === "cost" && a.costMissing ? "Unavailable" : "0"
           : "0";
     button.title = metric === "cost" && a?.costMissing ? `${a.costMissing} records unpriced; displayed cost is partial.` : modelName(name);
     button.setAttribute("aria-pressed", String(models.has(name)));
@@ -692,8 +666,7 @@ function drawBubbles() {
       bar = el("div", "avg-bar");
     bar.style.height = (p.average / maxAverage) * 90 + "px";
     track.append(bar);
-    const unknown = metric === "cost" ? p.requests > 0 && p.costMissing === p.requests :
-      !p.total && p.missing && !["requests", "rounds"].includes(metric);
+    const unknown = metric === "cost" && p.requests > 0 && p.costMissing === p.requests;
     const perDay =
       metric === "requests"
         ? "Requests·calls/day"
@@ -725,7 +698,7 @@ function drawBubbles() {
           el(
             "span",
             "harness-badge",
-            HARNESSES[k] + " " + percentage(v, p.total),
+            harnessName(k, data?.harnessNames) + " " + percentage(v, p.total),
           ),
         );
     head.append(badges);
@@ -757,9 +730,7 @@ function drawBubbles() {
         el(
           "p",
           "chapter-meta",
-          metric === "cost" && p.costMissing ? "No priced usage" : p.missing && !["requests", "rounds"].includes(metric)
-            ? "Tokens not recorded"
-            : "No records",
+          metric === "cost" && p.costMissing ? "No priced usage" : "No records",
         ),
       );
     $("chapters").append(column);
@@ -821,7 +792,7 @@ function paintRace(position) {
   const nextMaximum = Math.max(metric === "cost" ? 0.01 : 1, ...next.ranking.map(row => row.value));
   const axis = rankingAxis(maximum + (nextMaximum - maximum) * fraction, metric === "cost");
   const scaleMaximum = axis.maximum;
-  $("race-unit").textContent = metric === "requests" ? "Requests" : metric === "rounds" ? "Rounds" : metric === "cost" ? "USD" : "Tokens";
+  $("race-unit").textContent = metric === "requests" ? "Requests" : metric === "cost" ? "USD" : "Tokens";
   if (raceAxisMaximum !== scaleMaximum) {
     raceAxisMaximum = scaleMaximum;
     $("race-axis").querySelector(".race-scale").replaceChildren(...axis.ticks.map((value, index) => {
@@ -881,7 +852,6 @@ function drawRace(position = 0) {
     device,
     excludeReview: $("exclude-review").checked,
   });
-  if (metric === "rounds") raceHistory = raceHistory.filter(row => row.provider === "copilot");
   raceFrames = rankingFrames(raceHistory, start, end, metric, mode);
   raceIndex = Math.floor(Math.min(position, Math.max(0, raceFrames.length - 1)));
   raceRows = new Map();
@@ -1053,6 +1023,7 @@ let latestLoad = 0;
 async function load(endpoint = "/api/usage", reset = false) {
   const request = ++latestLoad;
   $("refresh").disabled = true;
+  $("refresh").setAttribute("aria-busy", "true");
   $("status").textContent = "Reading usage records…";
   $("status").hidden = false;
   try {
@@ -1078,6 +1049,7 @@ async function load(endpoint = "/api/usage", reset = false) {
       models = new Set();
       knownModels = new Set();
       if (result.demo) harnesses = new Set(Object.keys(HARNESSES));
+      knownHarnesses = new Set(Object.keys(HARNESSES));
     }
     data = result;
     rows = normalize(data);
@@ -1086,6 +1058,8 @@ async function load(endpoint = "/api/usage", reset = false) {
     const dates = rows.map((r) => r.date).sort();
     allModels = [...new Set(rows.map((r) => r.model))].sort();
     ({selected: models, known: knownModels} = reconcileModels(allModels, models, knownModels));
+    // Harnesses first seen in this payload start selected, like new models.
+    ({selected: harnesses, known: knownHarnesses} = reconcileModels(historyHarnesses(rows, data.harnessNames).map(([key]) => key), harnesses, knownHarnesses));
     const followLatest = !end || end === days.at(-1);
     const lastDate = !isDemo && !window.CHRONICLES_DATA
       ? [dates.at(-1), calendarDate(data.timezone || "UTC")].filter(Boolean).sort().at(-1)
@@ -1119,7 +1093,7 @@ async function load(endpoint = "/api/usage", reset = false) {
     }
     start = start && start >= days[0] && start <= days.at(-1) ? start : days[0];
     end = !followLatest && end >= start && end <= days.at(-1) ? end : days.at(-1);
-    render();
+    renderRange();
     $("status").textContent = isDemo
       ? previewFallback ? "No local usage records found. This is a preview demo with fictional data." : "This is a preview demo with fictional data."
       : data.errors?.length ? "Partial scan: " + data.errors.join(", ") : "";
@@ -1134,11 +1108,14 @@ async function load(endpoint = "/api/usage", reset = false) {
   } catch (error) {
     if (request === latestLoad) { $("status").textContent = error.message; $("status").hidden = false; }
   } finally {
-    if (request === latestLoad) $("refresh").disabled = false;
+    if (request === latestLoad) {
+      $("refresh").disabled = false;
+      $("refresh").removeAttribute("aria-busy");
+    }
   }
 }
 $("all-harnesses").onclick = () => {
-  const available = historyHarnesses(rows).map(([key]) => key);
+  const available = historyHarnesses(rows, data?.harnessNames).map(([key]) => key);
   const allSelected = available.every(key => harnesses.has(key));
   for (const key of available) {
     if (allSelected) harnesses.delete(key);
@@ -1261,6 +1238,9 @@ document.querySelectorAll("[data-days]").forEach(
     }),
 );
 $("refresh").onclick = () => load();
+window.addEventListener("focus", () => {
+  if (!document.hidden && !window.CHRONICLES_DATA) load();
+});
 $("export").onclick = () => {
   const fields = [
     "date",
@@ -1269,37 +1249,25 @@ $("export").onclick = () => {
     "device",
     "model",
     "requests",
-    "rounds",
     "input",
     "output",
     "cacheRead",
     "cacheWrite",
     "total",
-    "tokenRecorded",
     "estimatedCostUSD",
     "costMissing",
-    "priceDate",
     "currency",
   ];
   const csv = [
     fields.join(","),
     ...activeRows.map((row) => {
-      const r = {...row, estimatedCostUSD: row.cost, priceDate: PRICE_DATE, currency: "USD"};
+      const r = {...row, estimatedCostUSD: row.cost, currency: "USD"};
       return fields
         .map(
           (f) =>
             '"' +
             String(
-              !r.tokenRecorded &&
-                [
-                  "input",
-                  "output",
-                  "cacheRead",
-                  "cacheWrite",
-                  "total",
-                ].includes(f)
-                ? ""
-                : (r[f] ?? ""),
+              r[f] ?? "",
             ).replaceAll('"', '""') +
             '"',
         )

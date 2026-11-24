@@ -1,0 +1,181 @@
+{
+  "engine": "9.9.9",
+  "tokscaleCore": "test",
+  "clients": [
+    {
+      "id": "aside",
+      "name": "Aside"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code"
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity"
+    },
+    {
+      "id": "antigravity-extension",
+      "name": "Antigravity IDE Extension"
+    },
+    {
+      "id": "antigravity-cli",
+      "name": "Antigravity CLI"
+    }
+  ],
+  "messages": [
+    {
+      "client": "claude",
+      "model": "claude-x",
+      "provider": "anthropic",
+      "session": "s1",
+      "dedup": "d1",
+      "timestamp": 1780000000000,
+      "input": 100,
+      "output": 10,
+      "cacheRead": 5,
+      "cacheWrite": 7,
+      "cacheWrite1h": 2,
+      "reasoning": 3,
+      "messages": 1,
+      "cost": 0.25,
+      "costSource": "estimated"
+    },
+    {
+      "client": "claude",
+      "model": "claude-x",
+      "provider": "anthropic",
+      "session": "s1",
+      "dedup": "d1",
+      "timestamp": 1780000000000,
+      "input": 100,
+      "output": 12,
+      "cacheRead": 5,
+      "cacheWrite": 7,
+      "cacheWrite1h": 2,
+      "reasoning": 3,
+      "messages": 1,
+      "cost": 0.5,
+      "costSource": "estimated"
+    },
+    {
+      "client": "aside",
+      "model": "mystery",
+      "provider": "x",
+      "session": "s2",
+      "dedup": null,
+      "timestamp": 1780000100000,
+      "input": 1,
+      "output": 1,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "cacheWrite1h": 0,
+      "reasoning": 0,
+      "messages": 1,
+      "cost": null,
+      "costSource": "unpriced"
+    },
+    {
+      "client": "aside",
+      "model": "mystery",
+      "provider": "x",
+      "session": "s2",
+      "dedup": null,
+      "timestamp": 1780000100000,
+      "input": 2,
+      "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "cacheWrite1h": 0,
+      "reasoning": 0,
+      "messages": 1,
+      "cost": null,
+      "costSource": "unpriced"
+    },
+    {
+      "client": "aside",
+      "model": "bad",
+      "provider": "x",
+      "session": "s3",
+      "dedup": null,
+      "timestamp": 0,
+      "input": 1,
+      "output": 1,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "cacheWrite1h": 0,
+      "reasoning": 0,
+      "messages": 1,
+      "cost": 1.0,
+      "costSource": "reported"
+    },
+    {
+      "client": "antigravity-extension",
+      "model": "모델",
+      "provider": "anthropic",
+      "session": "s1",
+      "dedup": "秋🍁",
+      "timestamp": 1793511000000,
+      "input": 100,
+      "output": 10,
+      "cacheRead": 5,
+      "cacheWrite": 7,
+      "cacheWrite1h": 2,
+      "reasoning": 3,
+      "messages": 1,
+      "cost": 0.123456789,
+      "costSource": "estimated"
+    },
+    {
+      "client": "antigravity-cli",
+      "model": "모델",
+      "provider": "anthropic",
+      "session": "s1",
+      "dedup": "다음",
+      "timestamp": 1793514600000,
+      "input": 100,
+      "output": 10,
+      "cacheRead": 5,
+      "cacheWrite": 7,
+      "cacheWrite1h": 2,
+      "reasoning": 3,
+      "messages": 1,
+      "cost": null,
+      "costSource": "estimated"
+    },
+    {
+      "client": "claude",
+      "model": "claude-x",
+      "provider": "anthropic",
+      "session": "s1",
+      "dedup": "offset",
+      "timestamp": "2026-11-01T06:45:01.123+00:00",
+      "input": 100,
+      "output": 10,
+      "cacheRead": 5,
+      "cacheWrite": 7,
+      "cacheWrite1h": 2,
+      "reasoning": 3,
+      "messages": 1,
+      "cost": 0.25,
+      "costSource": "estimated"
+    },
+    {
+      "client": "claude",
+      "model": "claude-x",
+      "provider": "anthropic",
+      "session": "s1",
+      "dedup": "no-time",
+      "timestamp": null,
+      "input": 100,
+      "output": 10,
+      "cacheRead": 5,
+      "cacheWrite": 7,
+      "cacheWrite1h": 2,
+      "reasoning": 3,
+      "messages": 1,
+      "cost": 0.25,
+      "costSource": "estimated"
+    }
+  ]
+}

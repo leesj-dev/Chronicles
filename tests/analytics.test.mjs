@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   normalize,
+  formatMoney,
   reconcileModels,
   historyHarnesses,
+  harnessName,
   filterRows,
   aggregate,
   percentage,
@@ -31,8 +33,10 @@ test("new models are selected across reloads while deselected models stay off", 
 test("ranking axes use round ticks with a ceiling that contains the leader", () => {
   assert.deepEqual(rankingAxis(33000000), {maximum: 40000000, ticks: [0, 10000000, 20000000, 30000000, 40000000]});
   assert.deepEqual(rankingAxis(27000000), {maximum: 30000000, ticks: [0, 10000000, 20000000, 30000000]});
+  assert.deepEqual(rankingAxis(101000000), {maximum: 120000000, ticks: [0, 40000000, 80000000, 120000000]});
+  assert.deepEqual(rankingAxis(210000000), {maximum: 240000000, ticks: [0, 60000000, 120000000, 180000000, 240000000]});
   assert.equal(rankingAxis(40000000).maximum, 40000000);
-  assert.equal(rankingAxis(40000001).maximum, 50000000);
+  assert.equal(rankingAxis(40000001).maximum, 45000000);
   for (const value of [0, 1, 6, 12, 19.7, 51, 31000, 990000, 1250000000]) {
     const {maximum, ticks} = rankingAxis(value);
     assert.ok(maximum >= value);
@@ -43,19 +47,21 @@ test("ranking axes use round ticks with a ceiling that contains the leader", () 
     assert.ok(ticks.slice(1).every((tick, index) => tick - ticks[index] === ticks[1]));
   }
 });
-test("requests stay unabridged and abbreviated token values keep two decimal places", () => {
+test("requests stay unabridged and abbreviated token values keep fixed decimals (2 for B, 1 for M/K)", () => {
   assert.equal(formatMetric(11680, "requests"), "11,680");
-  assert.equal(formatMetric(11680, "rounds"), "11,680");
-  assert.equal(formatMetric(130500000, "total"), "130.50M");
-  assert.equal(formatMetric(1000000, "input"), "1.00M");
-  assert.equal(formatMetric(11680, "output"), "11.68K");
+  assert.equal(formatMetric(2600000000, "total"), "2.60B");
+  assert.equal(formatMetric(2000000000, "total"), "2.00B");
+  assert.equal(formatMetric(392000000, "total"), "392.0M");
+  assert.equal(formatMetric(130500000, "total"), "130.5M");
+  assert.equal(formatMetric(1000000, "input"), "1.0M");
+  assert.equal(formatMetric(11680, "output"), "11.7K");
   assert.equal(formatMetric(0, "total"), "0");
 });
 test("request averages use at most one decimal while token averages keep their format", () => {
   assert.equal(formatAverage(49.03, "requests"), "49");
   assert.equal(formatAverage(49.06, "requests"), "49.1");
   assert.equal(formatAverage(1234.567, "requests"), "1,234.6");
-  assert.equal(formatAverage(130500000, "total"), "130.50M");
+  assert.equal(formatAverage(130500000, "total"), "130.5M");
 });
 test("today follows the report timezone across midnight", () => {
   const instant = new Date("2026-10-09T15:00:00Z");
@@ -113,7 +119,7 @@ test("rolling history precedes the replay range while cumulative starts at the s
 test("ranking race combines harnesses and includes every model with positive usage", () => {
   const rows = Array.from({length: 16}, (_, index) => ({date: "2026-10-01", model: `model-${index}`, total: index}));
   rows.push({date: "2026-10-01", model: "model-1", total: 50});
-  rows.push({date: "2026-10-01", model: "unknown", missing: 1});
+  rows.push({date: "2026-10-01", model: "unknown"});
   const [frame] = rankingFrames(rows, "2026-10-01", "2026-10-01", "total");
   assert.equal(frame.ranking.length, 15);
   assert.deepEqual(frame.ranking[0], {model: "model-1", value: 51});
@@ -137,26 +143,26 @@ const fixture = {
       requests: 1,
       total: 50,
       device: "this-mac",
-      rounds: 3,
-      roundRecords: 1,
-    },
-  ],
-  missing: [
-    {
-      date: "2026-01-02",
-      provider: "copilot",
-      model: "copilot/claude-sonnet-4.5",
-      device: "this-mac",
-      rounds: 7,
     },
   ],
 };
-test("missing tokens contribute to request and round counts, never token totals", () => {
+test("requests and tokens sum per row and averages span the whole range", () => {
   const r = normalize(fixture);
-  assert.equal(summarize(r, "requests", "2026-01-01", "2026-01-02").total, 4);
+  assert.equal(summarize(r, "requests", "2026-01-01", "2026-01-02").total, 3);
   assert.equal(summarize(r, "total", "2026-01-01", "2026-01-02").total, 150);
-  assert.equal(summarize(r, "rounds", "2026-01-01", "2026-01-02").total, 10);
-  assert.equal(summarize(r, "requests", "2026-01-01", "2026-01-02").average, 2);
+  assert.equal(summarize(r, "requests", "2026-01-01", "2026-01-02").average, 1.5);
+});
+test("cost uses the collector's per-row cost; rows without it are unpriced", () => {
+  const r = normalize({rows: [
+    {date: "2026-01-01", provider: "claude", model: "m", requests: 3, total: 9, cost: 1.5, costRequests: 2},
+    {date: "2026-01-01", provider: "claude", model: "old", requests: 2, total: 4},
+    {date: "2026-01-01", provider: "cursor", model: "auto", requests: 1, total: 1, cost: 0, costRequests: 0},
+  ]});
+  assert.deepEqual(r.map(row => [row.cost, row.costMissing]), [[1.5, 1], [null, 2], [null, 1]]);
+  const summary = summarize(r, "cost", "2026-01-01", "2026-01-01");
+  assert.equal(summary.total, 1.5);
+  assert.equal(summary.costMissing, 4);
+  assert.equal(summary.requests, 6);
 });
 test("same model merges across harnesses and colors stay stable", () => {
   const r = aggregate(normalize(fixture), "requests");
@@ -188,6 +194,22 @@ test("GPT variants and Gemini tiers use capitalized display names", () => {
   assert.equal(modelName("gemini-3.7-flash"), "Gemini 3.7 Flash");
   assert.equal(modelName("copilot/gemini-3.1-pro-preview"), "Gemini 3.1 Pro preview");
   assert.equal(modelName("Gemini Pro"), "Gemini Pro");
+  for (const tier of ["Hydrogen", "Argon", "Neon", "Carbon"])
+    assert.equal(modelName(`gemini-4-${tier.toLowerCase()}`), `Gemini 4 ${tier}`);
+});
+test("Gemini 3.x/4 variants collapse and tier colors match lineage", () => {
+  assert.equal(modelId("gemini-3.8-flash-n"), "gemini-3.8-flash");
+  assert.equal(modelId("Gemini 3.8 Flash (medium)"), "gemini-3.8-flash");
+  assert.equal(modelId("gemini-3.8-flash-cyber"), "gemini-3.8-flash-cyber");
+  assert.equal(modelId("gemini-3.5-flash-lite"), "gemini-3.5-flash-lite");
+  assert.equal(modelId("Gemini 4 Hydrogen tiered high"), "gemini-4-hydrogen");
+  assert.equal(modelColor("gemini-4-hydrogen"), "hsl(184 70% 42%)");
+  assert.equal(modelColor("gemini-4-argon"), "hsl(246 70% 61%)");
+  assert.equal(modelColor("gemini-4-neon"), "hsl(246 70% 48%)");
+  assert.equal(modelColor("gemini-4-carbon"), "hsl(14 70% 52%)");
+  assert.equal(modelColor("gemini-3.1-pro"), "hsl(246 70% 74%)");
+  assert.equal(modelColor("gemini-2.5-pro"), "hsl(246 70% 84%)");
+  assert.equal(modelColor("gemini-2.5-flash"), modelColor("gemini-3-flash"));
 });
 test("harness deselection and device filters change the actual aggregate", () => {
   const rows = normalize(fixture),
@@ -197,7 +219,7 @@ test("harness deselection and device filters change the actual aggregate", () =>
       harnesses: new Set(["copilot"]),
       models: new Set(rows.map((r) => r.model)),
     };
-  assert.equal(filterRows(rows, options).length, 2);
+  assert.equal(filterRows(rows, options).length, 1);
   assert.equal(
     filterRows(rows, { ...options, harnesses: new Set() }).length,
     0,
@@ -226,13 +248,29 @@ test("small shares are readable and never claim zero usage", () => {
   assert.equal(percentage(1, 0), "—");
 });
 
-test("harness availability comes from history, including missing-token requests", () => {
+test("harness availability comes from history, never from account snapshots", () => {
   const rows = normalize({
     rows: [{provider: "codex", model: "gpt-5.4", date: "2026-01-01", requests: 1, total: 10}],
-    missing: [{provider: "copilot", date: "2026-01-02", model: "sonnet"}],
     accountSnapshots: [{provider: "cursor", lines: [{type: "progress", used: 20}]}],
   });
-  assert.deepEqual(historyHarnesses(rows).map(([key]) => key), ["codex", "copilot"]);
+  assert.deepEqual(historyHarnesses(rows).map(([key]) => key), ["codex"]);
   assert.deepEqual(historyHarnesses([]), []);
   assert.deepEqual(historyHarnesses([{provider: "cursor", requests: 0, total: 0}]), []);
+});
+test("harnesses the page does not know use the server's display names, then their id", () => {
+  const rows = [
+    {provider: "gemini", requests: 1, total: 1}, {provider: "aside", requests: 1, total: 1},
+    {provider: "claude", requests: 1, total: 1}, {provider: "mystery", requests: 1, total: 1},
+  ];
+  assert.deepEqual(historyHarnesses(rows, {aside: "Aside", gemini: "Gemini CLI", claude: "ignored"}),
+    [["claude", "Claude Code"], ["aside", "Aside"], ["gemini", "Gemini CLI"], ["mystery", "mystery"]]);
+  assert.equal(harnessName("codex"), "Codex");
+  assert.equal(harnessName("amp", {amp: "Amp"}), "Amp");
+});
+test("USD costs keep small amounts visible and unknown values unavailable", () => {
+  assert.equal(formatMoney(2), "$2.00");
+  assert.equal(formatMoney(null), "—");
+  assert.equal(formatMoney(Infinity), "—");
+  assert.equal(formatMoney(0.0001), "<$0.01");
+  assert.equal(formatMoney(0), "$0.00");
 });
