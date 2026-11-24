@@ -7,7 +7,7 @@
   "scripts": {
     "start": "engine/target/release/chronicles serve",
     "demo": "engine/target/release/chronicles serve --demo",
-    "test": "node --test tests/",
+    "test": "node --test \"tests/**/*.test.*js\"",
     "test:collectors": "cd engine && cargo test --locked",
     "check": "node --check src/web/combobox.js && node --check src/web/calendar.js && node --check src/web/app.js && node --check src/web/analytics.mjs && cd engine && cargo clippy --locked --all-targets -- -D warnings"
   },

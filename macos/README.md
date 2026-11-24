@@ -40,7 +40,6 @@ macos/
   scripts/
     build-app.sh
     analytics-parity.mjs
-    collector-parity.py
 ```
 
 `ChroniclesCore` is independent of the UI. Calendar-date chart coordinates use UTC so daylight-saving changes do not alter day counts; collection converts timestamps to the report timezone before aggregation. Missing-token events contribute requests and recorded rounds without fabricated token totals. Account balances and quotas will remain separate from dated usage.
@@ -59,8 +58,7 @@ macos/scripts/build-app.sh
 swift macos/scripts/font-check.swift
 ```
 
-The standalone core checks run with Command Line Tools, without installing XCTest or Swift Testing. They cover dates/DST, missing tokens, filters/shared devices, inactive days, names/colors/formatting, centered timeline hit testing and boundaries, Codex cumulative deltas/resets/archive copies, and Claude deduplication/cache invalidation. The JavaScript differential check compares all seven metrics' model totals, daily values, and averages against the web implementation, using the canonical demo and a missing-token fixture (42 comparisons). The font check registers the packaged font through CoreText and checks regular, medium, semibold and bold weights. Node is used for the development checks. The legacy `collector-parity.py` script targeted the removed Python collector and is no longer part of verification.
-
+The standalone core checks run with Command Line Tools, without installing XCTest or Swift Testing. They cover dates/DST, missing tokens, filters/shared devices, inactive days, names/colors/formatting, centered timeline hit testing and boundaries, Codex cumulative deltas/resets/archive copies, and Claude deduplication/cache invalidation. The JavaScript differential check compares all seven metrics' model totals, daily values, and averages against the web implementation, using the canonical demo and a missing-token fixture (42 comparisons). The font check registers the packaged font through CoreText and checks regular, medium, semibold and bold weights. Node is used for the development checks.
 Local verification of this slice: the app was built and launched; metric/harness/date changes and the calendar popover were checked in the native UI. The start-date handle was incremented through its accessibility action. A CSV saved through the native panel was read back and matched the web selection exactly (12 rows, 990,536 tokens, April 21–26 demo selection excluding Claude Code). A real local scan completed across 1,321 files; this proves native collection/read-back, not full parity across all local history. The eight core checks, 42 analytics comparisons, fictional-history collector comparison, and existing 16 JavaScript/24 Python tests passed. CI configuration is added; hosted CI has not been run for these uncommitted changes.
 
 The tooltip uses intrinsic single-line content width and measures/clamps its current content in the same layout pass, including at the final date. Native UI verification covered the final day at the right/bottom edge in a 900-point-wide window, with both tooltip rows visible, and scrolling with the tooltip open. The dashboard History popup, chart hint and added report footer have been removed. Hover only updates the overlay, with cached aggregation and a batched Canvas drawing; actual frame-rate comparison against the web remains unmeasured.
