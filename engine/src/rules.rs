@@ -11,10 +11,12 @@
 //! - <https://platform.claude.com/docs/en/build-with-claude/fast-mode>: Claude fast mode, which prompt
 //!   caching multipliers apply on top of. Opus 4.6 and 4.7 had it at $30/$150, six times their list price.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use memchr::memmem;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokscale_core::sessions::{CostSource, EstimateStatus};
 use tokscale_core::UnifiedMessage;
@@ -93,7 +95,7 @@ pub fn apply(messages: &mut [UnifiedMessage], fast: &HashSet<String>) {
 }
 
 /// The `message id:request id` of every Claude Code request that ran in fast mode. tokscale does not read the
-/// log's `speed` field, so this looks for it; the files are only searched as bytes unless they contain it.
+/// log's `speed` field, so this looks for it. A file is searched again only when it changed.
 pub fn claude_fast_requests(home: Option<&Path>) -> HashSet<String> {
     // As in tokscale, naming a home ignores the environment.
     let config = match home {
@@ -108,6 +110,44 @@ pub fn claude_fast_requests(home: Option<&Path>) -> HashSet<String> {
     };
     let mut files = Vec::new();
     collect_jsonl(&root, &mut files, &mut HashSet::new());
+    let path = tokscale_core::paths::get_cache_dir().join("claude-fast-requests.json");
+    let known = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    let found = search(&files, &known);
+    if found != known {
+        // Without the cache the next call only searches again.
+        let _ = save(&path, &found);
+    }
+    found.into_values().flat_map(|file| file.keys).collect()
+}
+
+/// What an unchanged file held (rename the cache file when `fast_keys` changes) when it was last searched.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+struct Searched {
+    size: u64,
+    /// Modification time, nanoseconds since 1970.
+    modified: u64,
+    keys: Vec<String>,
+}
+
+type SearchedFiles = BTreeMap<PathBuf, Searched>;
+
+fn save(path: &Path, files: &SearchedFiles) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    std::fs::write(&temporary, serde_json::to_vec(files)?)
+        .and_then(|()| std::fs::rename(&temporary, path))
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(&temporary);
+        })
+}
+
+/// Searches the files that changed since `known`.
+fn search(files: &[PathBuf], known: &SearchedFiles) -> SearchedFiles {
     let workers = std::thread::available_parallelism()
         .map_or(4, |n| n.get())
         .min(8);
@@ -116,15 +156,15 @@ pub fn claude_fast_requests(home: Option<&Path>) -> HashSet<String> {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 scope.spawn(|| {
-                    let mut keys = HashSet::new();
+                    let mut found = Vec::new();
                     while let Some(path) =
                         files.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
                     {
-                        if let Ok(bytes) = std::fs::read(path) {
-                            fast_keys(&bytes, &mut keys);
+                        if let Some(file) = search_file(path, known.get(path)) {
+                            found.push((path.clone(), file));
                         }
                     }
-                    keys
+                    found
                 })
             })
             .collect();
@@ -132,6 +172,25 @@ pub fn claude_fast_requests(home: Option<&Path>) -> HashSet<String> {
             .into_iter()
             .flat_map(|handle| handle.join().unwrap_or_default())
             .collect()
+    })
+}
+
+fn search_file(path: &Path, known: Option<&Searched>) -> Option<Searched> {
+    // Read before the contents, so a later write is searched next time.
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    let (size, modified) = (metadata.len(), modified.as_nanos() as u64);
+    if let Some(known) = known.filter(|known| (known.size, known.modified) == (size, modified)) {
+        return Some(known.clone());
+    }
+    let mut keys = HashSet::new();
+    fast_keys(&std::fs::read(path).ok()?, &mut keys);
+    let mut keys: Vec<_> = keys.into_iter().collect();
+    keys.sort();
+    Some(Searched {
+        size,
+        modified,
+        keys,
     })
 }
 
@@ -300,5 +359,33 @@ broken "speed":"fast""#,
             keys,
             HashSet::from(["m1:r1".to_string(), "message:m4".to_string()])
         );
+    }
+
+    #[test]
+    fn a_file_is_searched_again_only_when_it_changed() {
+        let folder = std::env::temp_dir().join(format!("fast-requests-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let log = folder.join("a.jsonl");
+        let line = |id: &str| {
+            format!("{{\"requestId\":\"r\",\"message\":{{\"id\":\"{id}\",\"usage\":{{\"speed\":\"fast\"}}}}}}\n")
+        };
+        std::fs::write(&log, line("m1")).unwrap();
+        let files = [log.clone(), folder.join("missing.jsonl")];
+        let first = search(&files, &SearchedFiles::new());
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[&log].keys, ["m1:r"]);
+
+        let path = folder.join("cache").join("known.json");
+        save(&path, &first).unwrap();
+        let mut known: SearchedFiles =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(known == first);
+        known.get_mut(&log).unwrap().keys = vec!["kept".into()];
+        assert_eq!(search(&files, &known)[&log].keys, ["kept"]);
+
+        std::fs::write(&log, line("m1") + &line("m2")).unwrap();
+        assert_eq!(search(&files, &known)[&log].keys, ["m1:r", "m2:r"]);
+        assert!(search(&[], &known).is_empty());
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 }

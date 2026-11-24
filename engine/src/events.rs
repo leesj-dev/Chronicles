@@ -1,5 +1,6 @@
 //! Turns a report into events with the ids both apps use. Kept byte-identical in Chronicles and CrossBar.
 
+use crate::report::Message;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, SecondsFormat, TimeDelta, Utc};
 use chrono_tz::Tz;
 use serde::Serialize;
@@ -15,8 +16,10 @@ const FIELDS: [&str; 6] = [
     "cacheWrite1h",
     "reasoning",
 ];
-pub fn event_id(key: &Value) -> String {
-    format!("{:x}", Sha256::digest(key.to_string().as_bytes()))
+/// SHA-256 of the key's compact JSON.
+pub fn event_id(key: &impl Serialize) -> String {
+    let text = serde_json::to_string(key).unwrap_or_default();
+    format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
 pub fn timestamp(value: &Value, milliseconds: bool) -> Option<DateTime<FixedOffset>> {
@@ -262,14 +265,65 @@ pub fn convert_local(report: crate::report::Report, zone: Tz) -> Scan {
         engine: json!({"version": report.engine, "tokscaleCore": report.tokscale_core}),
         ..Scan::default()
     };
-    // Convert just one message at a time so large local reports never need a
-    // second, fully materialized JSON representation in memory.
-    collect_events(
-        &mut scan,
-        report.messages.into_iter().map(|message| json!(message)),
-        zone,
-    );
+    let mut seen = HashMap::new();
+    for message in report.messages {
+        if let Some(event) = message_event(message, zone, &mut seen) {
+            scan.events.insert(event);
+        } else {
+            scan.skipped += 1;
+        }
+    }
     scan
+}
+
+/// [`local_event`] without building JSON for every message.
+fn message_event(message: Message, zone: Tz, seen: &mut HashMap<String, u64>) -> Option<Event> {
+    let instant = timestamp(&Value::from(message.timestamp), true)?;
+    let id = match &message.dedup {
+        Some(key) => event_id(&("engine", &message.client, key)),
+        None => {
+            let (session, time, model) = (&message.session, message.timestamp, &message.model);
+            let occurrence = seen
+                .entry(serde_json::to_string(&(session, time, model)).ok()?)
+                .or_default();
+            *occurrence += 1;
+            event_id(&(
+                "engine",
+                &message.client,
+                (session, time, model, *occurrence),
+            ))
+        }
+    };
+    let counts = [
+        message.input,
+        message.output,
+        message.cache_read,
+        message.cache_write,
+        message.cache_write_1h,
+        message.reasoning,
+    ];
+    // JSON has no NaN or infinity.
+    let cost = message
+        .cost
+        .filter(|cost| cost.is_finite())
+        .map(|cost| cost.max(0.0));
+    Some(Event {
+        id,
+        provider: alias(&message.client).to_owned(),
+        date: instant.with_timezone(&zone).date_naive().to_string(),
+        timestamp: Some(instant),
+        model: message.model,
+        metrics: Metrics {
+            tokens: FIELDS
+                .into_iter()
+                .zip(counts.map(|count| count.max(0) as u64))
+                .collect(),
+            priced: Some(u64::from(cost.is_some())),
+            cost,
+        },
+        remote: false,
+        session: message.session,
+    })
 }
 
 fn collect_events(
@@ -314,4 +368,60 @@ fn local_event(message: &Value, zone: Tz, seen: &mut HashMap<String, u64>) -> Op
         remote: false,
         session: message["session"].as_str().unwrap_or("").to_owned(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn messages_convert_as_their_json_does() {
+        let message = |client: &str, dedup: Option<&str>, timestamp, cost| Message {
+            client: client.into(),
+            model: "gpt \"x\" \u{e9}".into(),
+            provider: "openai".into(),
+            session: "s/1".into(),
+            dedup: dedup.map(String::from),
+            timestamp,
+            input: 1,
+            output: -2,
+            cache_read: 3,
+            cache_write: 4,
+            cache_write_1h: 5,
+            reasoning: 6,
+            messages: 1,
+            cost,
+            cost_source: "estimated",
+        };
+        let messages = || {
+            vec![
+                message("claude", Some("m:r"), 1_793_545_200_123, Some(0.1)),
+                message("claude", Some("m:r"), 1_793_545_200_123, Some(0.2)),
+                message("antigravity-cli", None, 1_793_545_200_000, None),
+                message("antigravity-cli", None, 1_793_545_200_000, Some(-1.0)),
+                message("codex", None, 0, Some(f64::NAN)),
+                message("codex", None, 1, Some(f64::NAN)),
+            ]
+        };
+        let report = |messages| crate::report::Report {
+            engine: "1",
+            tokscale_core: "2",
+            clients: Vec::new(),
+            messages,
+        };
+        let zone = chrono_tz::Asia::Seoul;
+        let typed = convert_local(report(messages()), zone);
+        let parsed = convert(&json!(report(messages())), zone).unwrap();
+        assert_eq!(typed.skipped, 1);
+        assert_eq!(typed.skipped, parsed.skipped);
+        assert_eq!(json!(typed.events.ordered), json!(parsed.events.ordered));
+        let sessions = |scan: &Scan| -> Vec<_> {
+            scan.events
+                .ordered
+                .iter()
+                .map(|e| e.session.clone())
+                .collect()
+        };
+        assert_eq!(sessions(&typed), sessions(&parsed));
+    }
 }

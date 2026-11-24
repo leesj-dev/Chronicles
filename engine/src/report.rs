@@ -16,24 +16,24 @@ pub struct Client {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Message {
-    client: String,
-    model: String,
-    provider: String,
-    session: String,
-    dedup: Option<String>,
-    timestamp: i64,
-    input: i64,
+    pub(crate) client: String,
+    pub(crate) model: String,
+    pub(crate) provider: String,
+    pub(crate) session: String,
+    pub(crate) dedup: Option<String>,
+    pub(crate) timestamp: i64,
+    pub(crate) input: i64,
     /// Includes reasoning, which tokscale counts apart from output.
-    output: i64,
-    cache_read: i64,
-    cache_write: i64,
-    cache_write_1h: i64,
+    pub(crate) output: i64,
+    pub(crate) cache_read: i64,
+    pub(crate) cache_write: i64,
+    pub(crate) cache_write_1h: i64,
     /// The part of `output` spent on reasoning.
-    reasoning: i64,
-    messages: i32,
+    pub(crate) reasoning: i64,
+    pub(crate) messages: i32,
     /// USD; null when the message could not be priced.
-    cost: Option<f64>,
-    cost_source: &'static str,
+    pub(crate) cost: Option<f64>,
+    pub(crate) cost_source: &'static str,
 }
 
 #[derive(Serialize)]
@@ -106,12 +106,26 @@ pub async fn scan(options: &Options) -> Result<Report, String> {
     let selected = selected_clients(options, &all);
     let mut parsed = Vec::new();
     if !selected.is_empty() {
-        parsed = tokscale_core::parse_local_unified_messages(LocalParseOptions {
-            home_dir: options.home.clone(),
-            clients: Some(selected),
-            ..Default::default()
-        })
-        .await?;
+        let runtime = tokio::runtime::Handle::current();
+        let scans: Vec<_> = groups(selected)
+            .into_iter()
+            .map(|clients| {
+                let runtime = runtime.clone();
+                let home_dir = options.home.clone();
+                tokio::task::spawn_blocking(move || {
+                    runtime.block_on(tokscale_core::parse_local_unified_messages(
+                        LocalParseOptions {
+                            home_dir,
+                            clients: Some(clients),
+                            ..Default::default()
+                        },
+                    ))
+                })
+            })
+            .collect();
+        for scan in scans {
+            parsed.extend(scan.await.map_err(|error| error.to_string())??);
+        }
         let home = options.home.as_deref().map(Path::new);
         rules::apply(&mut parsed, &rules::claude_fast_requests(home));
         // The synthetic client can discover a Cursor cache implicitly.
@@ -164,6 +178,30 @@ fn selected_clients(options: &Options, all: &[Client]) -> Vec<String> {
         .collect()
 }
 
+/// Splits the clients into scans that run at the same time. tokscale reads one client after another, and
+/// matches bb's rows against Claude's and Codex's and OpenClaw's against Codex's, so those stay together.
+/// `synthetic` relabels other clients' messages and reads everything itself.
+fn groups(selected: Vec<String>) -> Vec<Vec<String>> {
+    let has = |id: &str| selected.iter().any(|client| client == id);
+    if has("synthetic") {
+        return vec![selected];
+    }
+    let (claude_apart, codex_apart) = (!has("bb"), !has("bb") && !has("openclaw"));
+    let mut groups = vec![Vec::new(); 5];
+    for client in selected {
+        let group = match client.as_str() {
+            "claude" if claude_apart => 0,
+            "codex" if codex_apart => 1,
+            "antigravity" | "antigravity-cli" | "antigravity-extension" => 2,
+            "copilot" => 3,
+            _ => 4,
+        };
+        groups[group].push(client);
+    }
+    groups.retain(|group| !group.is_empty());
+    groups
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +218,25 @@ mod tests {
             ["claude", "synthetic"]
         );
         assert!(!selected_clients(&Options::default(), &clients()).contains(&"cursor".into()));
+    }
+
+    #[test]
+    fn clients_tokscale_matches_against_each_other_are_scanned_together() {
+        let split = |text: &str| -> Vec<String> {
+            groups(text.split(',').map(String::from).collect())
+                .iter()
+                .map(|group| group.join(","))
+                .collect()
+        };
+        assert_eq!(
+            split("codex,grok,claude,antigravity,antigravity-cli"),
+            ["claude", "codex", "antigravity,antigravity-cli", "grok"]
+        );
+        assert_eq!(split("claude,codex,openclaw"), ["claude", "codex,openclaw"]);
+        assert_eq!(
+            split("claude,codex,bb,copilot"),
+            ["copilot", "claude,codex,bb"]
+        );
+        assert_eq!(split("claude,copilot,synthetic").len(), 1);
     }
 }
