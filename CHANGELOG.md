@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show DeepSeek Harness’s `deepseek-flash` usage as DeepSeek V4.1 Flash from September 10, 2026, resolved by the date of each record. Earlier usage stays unversioned.
 - Apply published rates tokscale-core leaves out: Claude fast mode, Codex Ultrafast, GPT-5.5 Fast at 2.5x, and free Codex auto-review from October 6, 2026. The shared files `events.rs`, `report.rs` and `rules.rs` are identical in CrossBar.
 - Count reasoning tokens in output and totals again; tokscale-core reports them apart from output.
 - Replace the Python server with the Rust `chronicles` binary. Use `serve` for `server.py`, `export PATH` for `server.py --export PATH`, `sync` for `sync.py`, and `report` for the former standalone engine command.

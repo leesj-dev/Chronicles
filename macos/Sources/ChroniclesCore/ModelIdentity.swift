@@ -23,6 +23,15 @@ public enum ModelIdentity {
         }
         return replacing(result, pattern: #"(claude-(?:opus|sonnet|haiku|fable)-\d+)-(\d{1,2})(?=$|-)"#) { $0[1] + "." + $0[2] }
     }
+    /// Names that DeepSeek repoints over time; keep in step with MODEL_ALIASES in src/web/analytics.mjs,
+    /// which records the sources. `day` is the first calendar day past the change in every timezone.
+    private static let aliases: [String: [(day: String, model: String)]] = [
+        "deepseek-flash": [(day: "2026-09-11", model: "deepseek-v4.1-flash")],
+    ]
+    public static func canonical(_ name: String, on day: UsageDay) -> String {
+        let model = canonical(name)
+        return aliases[model]?.last { day.rawValue >= $0.day }?.model ?? model
+    }
     public static func displayName(_ name: String) -> String {
         var value = canonical(name)
         if value.hasPrefix("claude-") { value.removeFirst(7) }
@@ -39,6 +48,10 @@ public enum ModelIdentity {
                 value = replacing(value, pattern: "\\b" + word + "\\b") { _ in word.capitalized }
             }
             return value
+        }
+        if value.hasPrefix("deepseek-") {
+            value = "DeepSeek " + value.dropFirst(9).replacingOccurrences(of: "-", with: " ")
+            return replacing(value, pattern: #"\b(v(?=\d)|flash\b|pro\b)"#) { $0[0].capitalized }
         }
         for family in ["opus", "sonnet", "haiku", "fable"] where value.hasPrefix(family + "-") {
             value = family.capitalized + " " + value.dropFirst(family.count + 1)

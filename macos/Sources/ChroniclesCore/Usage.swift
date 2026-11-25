@@ -101,7 +101,7 @@ public struct UsageRow: Codable, Hashable, Sendable {
                 requests: Int = 0, rounds: Int = 0, roundRecords: Int = 0,
                 input: Int = 0, output: Int = 0, cacheRead: Int = 0, cacheWrite: Int = 0,
                 total: Int? = nil, tokenRecorded: Bool = true) {
-        self.date = date; self.provider = provider; self.model = ModelIdentity.canonical(model)
+        self.date = date; self.provider = provider; self.model = ModelIdentity.canonical(model, on: date)
         self.device = device; self.requests = requests; self.rounds = rounds; self.roundRecords = roundRecords
         self.input = input; self.output = output; self.cacheRead = cacheRead; self.cacheWrite = cacheWrite
         self.total = total ?? input + output + cacheRead + cacheWrite

@@ -89,6 +89,21 @@ func namesColorsAndNumberFormatsMatchWebConventions() throws {
     try expect(UsageMetric.requests.formatted(49.06, average: true) == "49.1")
 }
 
+func floatingDeepSeekAliasResolvesByUsageDay() throws {
+    let releaseDay = try require(UsageDay(rawValue: "2026-09-10"))
+    func model(_ name: String, daysAfterRelease: Int) -> String {
+        UsageRow(date: releaseDay.adding(days: daysAfterRelease), provider: "dsh", model: name).model
+    }
+    // Daily rows cannot place the release day (2026-09-10 04:00 UTC) on either side.
+    try expect(model("deepseek-flash", daysAfterRelease: 0) == "deepseek-flash")
+    try expect(model("deepseek-flash", daysAfterRelease: 1) == "deepseek-v4.1-flash")
+    try expect(model("deepseek-v4-flash", daysAfterRelease: 75) == "deepseek-v4-flash")
+    try expect(model("deepseek-v4-pro", daysAfterRelease: 75) == "deepseek-v4-pro")
+    try expect(ModelIdentity.displayName("deepseek-v4.1-flash") == "DeepSeek V4.1 Flash")
+    try expect(ModelIdentity.displayName("deepseek-v4-pro") == "DeepSeek V4 Pro")
+    try expect(ModelIdentity.displayName("deepseek-flash") == "DeepSeek Flash")
+}
+
 func timelineGeometryKeepsDatesCenteredAndHoverInsideBounds() throws {
     let start = try require(UsageDay(rawValue: "2026-01-01"))
     let rows = [UsageRow(date: start, provider: "codex", model: "gpt-5.4", requests: 3),
@@ -177,9 +192,10 @@ func claudeDeduplicatesMessagesAndInvalidatesEditedFiles() async throws {
         try filtersRetainSharedDevicesAndHonorEmptySelections()
         try dailyAggregationIncludesInactiveDaysAndCanonicalModels()
         try namesColorsAndNumberFormatsMatchWebConventions()
+        try floatingDeepSeekAliasResolvesByUsageDay()
         try timelineGeometryKeepsDatesCenteredAndHoverInsideBounds()
         try await collectorHandlesRepeatedTotalsDeltasResetsAndArchiveCopies()
         try await claudeDeduplicatesMessagesAndInvalidatesEditedFiles()
-        print("8 native core checks passed (calendar, missing tokens, filters, daily aggregation, names/colors/formatting, timeline geometry, Codex, Claude).")
+        print("9 native core checks passed (calendar, missing tokens, filters, daily aggregation, names/colors/formatting, DeepSeek alias, timeline geometry, Codex, Claude).")
     }
 }

@@ -117,6 +117,20 @@ export function modelId(name) {
     .replace(/^gemini[- ](3\.[5-8])[- ]flash(?=$|[- ](?!lite\b|cyber\b)).*/, "gemini-$1-flash")
     .replace(/^gemini[- ]4[- ](hydrogen|argon|neon|carbon)(?=$|[- ](?!lite\b|cyber\b)).*/, "gemini-4-$1");
 }
+// Names that DeepSeek repoints over time, which DeepSeek Harness logs without a version.
+// When an alias moves, append a row: earlier usage keeps the version it ran on.
+// `day` is the first calendar day that is past `since` in every timezone, for rows without an hour.
+// Sources: https://api-docs.deepseek.com/updates/ (2026-09-10, and the 2026-10-17 revision, whose
+// "-1017" suffix DeepSeek Harness itself leaves out of the name) and
+// https://github.com/sst/models.dev/blob/dev/providers/deepseek/models/deepseek-flash.toml
+const MODEL_ALIASES = {
+  "deepseek-flash": [{since: "2026-09-10T04:00:00Z", day: "2026-09-11", model: "deepseek-v4.1-flash"}],
+};
+function aliasTarget(model, {date, hour}) {
+  const at = Date.parse(hour);
+  return MODEL_ALIASES[model]?.findLast(row =>
+    Number.isNaN(at) ? date >= row.day : at >= Date.parse(row.since))?.model ?? model;
+}
 export function modelName(name) {
   let n = modelId(name).replace(/^claude-/, "");
   if (n.startsWith("gpt-"))
@@ -131,7 +145,7 @@ export function modelName(name) {
   if (/^grok[- ]/.test(n)) return n.replace(/^grok/, "Grok").replaceAll("-", " ");
   if (/^kimi[- ]/.test(n)) return n.replace(/^kimi-k/, "Kimi K").replaceAll("-", " ").replace(/\bcode\b/, "Code");
   if (/^glm-/.test(n)) return n.toUpperCase().replace(/-FLASHX?/, word => word === "-FLASHX" ? " FlashX" : " Flash");
-  if (/^deepseek-/.test(n)) return n.replace(/^deepseek-/, "DeepSeek ").replaceAll("-", " ").replace(/\b(flash|pro)\b/g, word => word[0].toUpperCase() + word.slice(1));
+  if (/^deepseek-/.test(n)) return n.replace(/^deepseek-/, "DeepSeek ").replaceAll("-", " ").replace(/\b(v(?=\d)|flash\b|pro\b)/g, word => word[0].toUpperCase() + word.slice(1));
   if (n === "muse-spark-open" || n === "meta-models/muse-spark-open-816b-a42b") return "Muse Spark Open";
   if (n === "meta-llama/llama-3.3-70b-instruct-turbo") return "Llama 3.3 70B Turbo";
   for (const family of ["opus", "sonnet", "haiku", "fable", "mythos"])
@@ -221,7 +235,7 @@ export function normalize(data) {
   const rows = (data.hourlyRows || data.rows).map((r) => ({
     ...r,
     sourceModel: r.model,
-    model: modelId(r.model),
+    model: aliasTarget(modelId(r.model), {date: r.date, hour: r.hour || r.timestamp}),
     requests: r.requests || 0,
   }));
   return rows.filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date)).map(r => {

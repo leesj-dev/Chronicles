@@ -274,3 +274,25 @@ test("USD costs keep small amounts visible and unknown values unavailable", () =
   assert.equal(formatMoney(0.0001), "<$0.01");
   assert.equal(formatMoney(0), "$0.00");
 });
+
+test("the floating deepseek-flash alias resolves only for usage dated after its release", () => {
+  const model = fields => normalize({timezone: "Asia/Seoul", rows: [{model: "deepseek-flash", ...fields}]})[0].model;
+  // DeepSeek pointed the alias at V4.1 Flash on 2026-09-10 at 04:00 UTC (13:00 in Seoul).
+  assert.equal(model({date: "2026-09-10", hour: "2026-09-10T13:00:00+09:00"}), "deepseek-v4.1-flash");
+  assert.equal(model({date: "2026-09-10", hour: "2026-09-10T12:00:00+09:00"}), "deepseek-flash");
+  assert.equal(model({date: "2026-11-24"}), "deepseek-v4.1-flash");
+  // Without an hour the release day itself cannot be placed on either side.
+  assert.equal(model({date: "2026-09-11"}), "deepseek-v4.1-flash");
+  assert.equal(model({date: "2026-09-10"}), "deepseek-flash");
+});
+test("only the floating alias is resolved, and the recorded name is kept", () => {
+  const rows = normalize({rows: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-flash"]
+    .map(model => ({date: "2026-11-24", model}))});
+  assert.deepEqual(rows.map(row => row.model), ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4.1-flash"]);
+  assert.equal(rows[2].sourceModel, "deepseek-flash");
+});
+test("DeepSeek names show a capitalized version only when one is known", () => {
+  assert.equal(modelName("deepseek-v4.1-flash"), "DeepSeek V4.1 Flash");
+  assert.equal(modelName("deepseek-v4-pro"), "DeepSeek V4 Pro");
+  assert.equal(modelName("deepseek-flash"), "DeepSeek Flash");
+});
