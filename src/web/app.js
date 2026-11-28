@@ -439,7 +439,7 @@ function renderModels() {
     }
     $("models").append(group);
     const a = totals.get(name);
-    group.hidden = !a || (!a.value && !(metric === "cost" && a.requests));
+    group.hidden = !a || (!a.value && !a.requests);
     button.querySelector(".model-value").textContent = a
           ? a.value
             ? metricText(a.value, metric)

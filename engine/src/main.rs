@@ -1,5 +1,5 @@
-use chronicles::{collector::Collector, paths, report, sync, usage, web};
-use clap::{Parser, Subcommand};
+use chronicles::{collector::Collector, copilot, paths, report, sync, usage, web};
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::{
     error::Error,
     io::{self, Write},
@@ -50,8 +50,9 @@ enum Command {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Err(error) = run(cli) {
+    let matches = Cli::command().get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    if let Err(error) = run(cli, matches.subcommand_matches("report")) {
         eprintln!("chronicles: {error}");
         return ExitCode::FAILURE;
     }
@@ -64,7 +65,7 @@ fn print_json(value: impl serde::Serialize) -> io::Result<()> {
     writeln!(out)
 }
 
-fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
+fn run(cli: Cli, report_args: Option<&ArgMatches>) -> Result<(), Box<dyn Error>> {
     let command = match cli.command {
         _ if cli.list_clients => return Ok(print_json(report::clients())?),
         Some(Command::Report(options)) if options.list_clients => {
@@ -72,7 +73,6 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Some(command) => command,
         None => {
-            use clap::CommandFactory;
             return Ok(Cli::command().print_help()?);
         }
     };
@@ -123,7 +123,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             }
             Command::Report(options) => {
                 config?;
-                print_json(report::scan(&options).await?)?;
+                // Read the private fields of the shared report options from Clap.
+                let args = report_args.expect("report subcommand arguments");
+                let home = args.get_one::<String>("home").cloned();
+                let exclude = args.get_one::<String>("exclude").map(String::as_str);
+                print_json(copilot::scan(&options, home, exclude).await?)?;
             }
         }
         Ok(())

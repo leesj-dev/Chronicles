@@ -24,6 +24,8 @@ chronicles --list-clients
 
 The in-process collector and sync import share report conversion and event ID generation. The server captures tokscale stderr during serialized scans on Unix and surfaces lines beginning with `Warning:`. The raw `report` command leaves diagnostics on stderr for the sync caller. `--offline` uses cached pricing, and reports use `TOKSCALE_CONFIG_DIR` when set. tokscale-core initializes pricing once per process. Restart a running server to reload its pricing catalog.
 
+The in-process collector and `report` recover missing VS Code Copilot Chat requests from workspace and empty-window JSON snapshots and journals. Recorded usage is priced through tokscale-core. Requests saved without token counts are included as unpriced with zero tokens.
+
 ## tokscale-core dependency
 
 Parsing and pricing come from `tokscale-core`, the MIT-licensed library of the [tokscale](https://github.com/junhoyeo/tokscale) project by Junho Yeo. `Cargo.toml` pins it at commit `b265e83`. To update it, change the revision and the version string in `src/report.rs`, then rebuild and run the parity tests.

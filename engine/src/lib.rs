@@ -1,4 +1,5 @@
 pub mod collector;
+pub mod copilot;
 pub mod events;
 mod limits;
 pub mod paths;

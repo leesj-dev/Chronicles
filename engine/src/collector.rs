@@ -1,4 +1,4 @@
-use crate::{limits::Bridge, paths, report, usage};
+use crate::{copilot, limits::Bridge, paths, report, usage};
 use chrono_tz::Tz;
 use serde_json::Value;
 use std::{
@@ -63,7 +63,7 @@ impl Collector {
             let _permit = permit;
             #[cfg(unix)]
             let capture = StderrCapture::start().ok();
-            let result = runtime.block_on(report::scan(&options));
+            let result = runtime.block_on(copilot::scan(&options, None, None));
             #[cfg(unix)]
             let stderr = capture
                 .and_then(|capture| capture.finish().ok())

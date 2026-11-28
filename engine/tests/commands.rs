@@ -77,6 +77,202 @@ fn raw_report_and_list_clients_work_with_an_isolated_home() {
         .any(|client| client["id"] == "cursor"));
 }
 
+fn copilot_home(home: &Path) {
+    let user = home.join("Library/Application Support/Code/User");
+    let workspace = user.join("workspaceStorage/hash/chatSessions");
+    let empty = user.join("globalStorage/emptyWindowChatSessions");
+    fs::create_dir_all(&workspace).unwrap();
+    fs::create_dir_all(&empty).unwrap();
+    // The engine already emits the first request. The second is filled in by later journal writes.
+    fs::write(workspace.join("copied.jsonl"), r#"
+{"kind":0,"v":{"sessionId":"ignored","requests":[{"timestamp":1773000000001,"modelId":"copilot/gpt-4.1","promptTokens":10,"result":{"usage":{"promptTokens":99}}},{"timestamp":1773000000002,"modelId":"copilot/auto"}]}}
+{"kind":1,"k":["requests",1,"result"],"v":{"metadata":{"agentId":"github.copilot-chat","resolvedModel":"gpt-4.1"}}}
+{"kind":1,"k":["requests",1,"result","usage","promptTokens"],"v":12}
+{"kind":1,"k":["requests",1,"result","usage","completionTokens"],"v":4}
+{"kind":2,"k":["requests"],"v":[{"timestamp":1773000000003,"modelId":"copilot/legacy","result":{"metadata":{}}},{"timestamp":1773000000004},{"timestamp":1773000000005,"result":{}},{"timestamp":1773000000006,"result":{"metadata":{"agentId":"another.extension"}}},{"timestamp":0,"result":{"metadata":{}}}]}
+{"kind":2,"k":["requests",2,"response"],"v":[{"timestamp":1773000000007,"result":{"metadata":{}}}]}
+{"kind":
+"#).unwrap();
+    fs::write(empty.join("copied.json"), r#"{
+        "requests": [
+            {"timestamp":1773000000002,"modelId":"copilot/stale","result":{"usage":{"promptTokens":200}}},
+            {"timestamp":{"start":1773000000000},"modelId":"copilot/original","result":{"metadata":{}}}
+        ]
+    }"#).unwrap();
+
+    let windows = home.join("AppData/Roaming/Code/User/globalStorage/emptyWindowChatSessions");
+    fs::create_dir_all(&windows).unwrap();
+    fs::write(windows.join("windows.jsonl"), r#"
+{"kind":0,"v":{"requests":[]}}
+{"kind":1,"k":["requests"],"v":[{"timestamp":1773000000010,"modelId":"copilot/windows","result":{"metadata":{}}}]}
+"#).unwrap();
+
+    let linux = home.join(".config/Code/User/workspaceStorage/hash/chatSessions");
+    fs::create_dir_all(&linux).unwrap();
+    fs::write(linux.join("linux.json"), r#"{
+        "requests": [{"timestamp":1773000000011,"modelId":" github.copilot-chat/legacy ","result":{"details":"fixture"}}]
+    }"#).unwrap();
+}
+
+fn copilot_command(root: &Path) -> Command {
+    let cache = root.join("engine");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(
+        cache.join("custom-pricing.json"),
+        r#"{"models":{
+        "gpt-4.1":{"input_cost_per_million_tokens":2,"output_cost_per_million_tokens":8}
+    }}"#,
+    )
+    .unwrap();
+    let mut cmd = cli();
+    cmd.current_dir(root)
+        .env("TOKSCALE_CONFIG_DIR", cache)
+        .env("CHRONICLES_TIMEZONE", "UTC");
+    cmd
+}
+
+#[test]
+fn report_recovers_copilot_usage_and_request_only_history() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("fixture-home");
+    copilot_home(&home);
+    let run = |filters: &[&str]| {
+        let output = copilot_command(root.path())
+            .args(["report", "--offline", "--home"])
+            .arg(&home)
+            .args(filters)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{:?}", output);
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let report = run(&["--clients", " copilot "]);
+    let mut messages: Vec<_> = report["messages"].as_array().unwrap().iter().collect();
+    messages.sort_by_key(|message| message["timestamp"].as_i64().unwrap());
+    let actual: Vec<_> = messages
+        .iter()
+        .map(|m| {
+            json!([
+                m["client"],
+                m["session"],
+                m["dedup"],
+                m["model"],
+                m["input"],
+                m["output"],
+                m["messages"],
+                m["costSource"]
+            ])
+        })
+        .collect();
+    assert_eq!(
+        actual,
+        json!([
+            [
+                "copilot",
+                "copied",
+                "copilot-vscode:copied:1773000000000",
+                "original",
+                0,
+                0,
+                1,
+                "unpriced"
+            ],
+            [
+                "copilot",
+                "copied",
+                "copilot-vscode:copied:1773000000001",
+                "gpt-4.1",
+                10,
+                0,
+                1,
+                "estimated"
+            ],
+            [
+                "copilot",
+                "copied",
+                "copilot-vscode:copied:1773000000002",
+                "gpt-4.1",
+                12,
+                4,
+                1,
+                "estimated"
+            ],
+            [
+                "copilot",
+                "copied",
+                "copilot-vscode:copied:1773000000003",
+                "legacy",
+                0,
+                0,
+                1,
+                "unpriced"
+            ],
+            [
+                "copilot",
+                "windows",
+                "copilot-vscode:windows:1773000000010",
+                "windows",
+                0,
+                0,
+                1,
+                "unpriced"
+            ],
+            [
+                "copilot",
+                "linux",
+                "copilot-vscode:linux:1773000000011",
+                "legacy",
+                0,
+                0,
+                1,
+                "unpriced"
+            ]
+        ])
+        .as_array()
+        .unwrap()
+        .clone()
+    );
+    assert!(messages[0]["cost"].is_null());
+    assert_eq!(messages[2]["provider"], messages[1]["provider"]);
+    assert!((messages[2]["cost"].as_f64().unwrap() - 0.000056).abs() < 1e-12);
+    for filters in [
+        &["--clients", "codex"][..],
+        &["--clients", "copilot", "--exclude", " copilot "][..],
+    ] {
+        assert_eq!(run(filters)["messages"], json!([]));
+    }
+}
+
+#[test]
+fn offline_export_includes_recovered_copilot_request_counts() {
+    let root = tempfile::tempdir().unwrap();
+    copilot_home(root.path());
+    let output = copilot_command(root.path())
+        .env("HOME", root.path())
+        .env("USERPROFILE", root.path())
+        .args(["export", "snapshot.html", "--offline"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output);
+    let page = fs::read_to_string(root.path().join("snapshot.html")).unwrap();
+    let payload = page
+        .split_once("window.CHRONICLES_DATA=")
+        .unwrap()
+        .1
+        .split_once(";</script>")
+        .unwrap()
+        .0;
+    let report: Value = serde_json::from_str(payload).unwrap();
+    let rows = report["rows"].as_array().unwrap();
+    let legacy = rows
+        .iter()
+        .find(|r| r["provider"] == "copilot" && r["model"] == "legacy")
+        .unwrap();
+    assert_eq!(legacy["requests"], 2);
+    assert_eq!(legacy["total"], 0);
+    assert_eq!(legacy["costRequests"], 0);
+}
+
 #[cfg(unix)]
 mod sync {
     use super::*;

@@ -80,7 +80,8 @@ Chronicles collects through the Rust engine in [`engine/`](engine/README.md), wh
 | --- | --- |
 | Codex | Sessions and archived sessions, including compressed archives |
 | Claude Code | Response messages carrying usage |
-| Copilot, Antigravity (IDE extension and CLI, shown as one harness), Grok, OpenCode | Read by the engine |
+| Copilot | Local history, including VS Code Chat requests stored without token counts. Those requests contribute to request totals only. |
+| Antigravity (IDE extension and CLI, shown as one harness), Grok, OpenCode | Read by the engine |
 | Aside, Gemini CLI, Amp and others | Local history from tokscale-core parsers. The page uses the display names supplied by the engine. |
 
 See the [engine README](engine/README.md) for collection options. Duplicate records across copies, forks and imported devices are merged by the engine's dedup keys. Deleted or unpreserved records cannot be recovered.
