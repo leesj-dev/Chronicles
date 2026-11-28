@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Replace the hand-drawn refresh icon with Lucide’s `refresh-cw`; its ISC notice is kept in `index.html`.
 - Charge DeepSeek API usage half outside its peak hours, which since August 16, 2026 are weekdays 01:00–04:00 and 06:00–10:00 UTC except Chinese public holidays. `rules.rs` carries the holidays through 2027.
 - Show DeepSeek Harness’s `deepseek-flash` usage as DeepSeek V4.1 Flash from September 10, 2026, resolved by the date of each record. Earlier usage stays unversioned.
 - Apply published rates tokscale-core leaves out: Claude fast mode, Codex Ultrafast, GPT-5.5 Fast at 2.5x, and free Codex auto-review from October 6, 2026. The shared files `events.rs`, `report.rs` and `rules.rs` are identical in CrossBar.
