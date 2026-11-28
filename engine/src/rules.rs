@@ -10,11 +10,18 @@
 //!   API price is published for it. Earlier requests keep tokscale's own partial estimate.
 //! - <https://platform.claude.com/docs/en/build-with-claude/fast-mode>: Claude fast mode, which prompt
 //!   caching multipliers apply on top of. Opus 4.6 and 4.7 had it at $30/$150, six times their list price.
+//! - <https://api-docs.deepseek.com/quick_start/pricing> and <https://api-docs.deepseek.com/updates/>,
+//!   read 2026-11-25: DeepSeek's own API costs half outside 01:00-04:00 and 06:00-10:00 UTC, Monday to
+//!   Friday, and all day on Chinese public holidays, since August 16, 2026 at 16:00 UTC. LiteLLM lists
+//!   only the peak rate and models.dev's API only the off-peak one.
+//! - <https://github.com/NateScarlet/holiday-cn> (MIT), which transcribes the State Council's notices:
+//!   the holidays.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
+use chrono::{Datelike, Timelike, Weekday};
 use memchr::memmem;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,6 +32,66 @@ use tokscale_core::UnifiedMessage;
 const AUTO_REVIEW_FREE_SINCE: i64 = 1_791_244_800_000;
 /// 2027-03-01T00:00:00-08:00.
 const GPT_6_2_ULTRAFAST_PROMOTION_END: i64 = 1_803_888_000_000;
+
+/// 2026-08-16T16:00:00Z.
+const DEEPSEEK_PEAK_PRICING_SINCE: i64 = 1_786_896_000_000;
+/// The weekdays China has off from then through 2027, in holiday-cn's 2026 and 2027 data. A later
+/// year's holidays count as ordinary days until they are added.
+#[rustfmt::skip]
+const CHINESE_WEEKDAY_HOLIDAYS: [(i32, u32, u32); 24] = [
+    (2026, 9, 25), (2026, 10, 1), (2026, 10, 2), (2026, 10, 5), (2026, 10, 6), (2026, 10, 7),
+    (2027, 1, 1), (2027, 2, 5), (2027, 2, 8), (2027, 2, 9), (2027, 2, 10), (2027, 2, 11),
+    (2027, 2, 12), (2027, 4, 5), (2027, 5, 3), (2027, 5, 4), (2027, 5, 5), (2027, 6, 9),
+    (2027, 9, 15), (2027, 10, 1), (2027, 10, 4), (2027, 10, 5), (2027, 10, 6), (2027, 10, 7),
+];
+
+/// Dollars per million input, cache-read and output tokens at peak; off-peak is half of each.
+fn deepseek_peak_rates(model: &str) -> Option<[f64; 3]> {
+    match model {
+        "deepseek-flash" | "deepseek-v4-flash" | "deepseek-v4-flash-vision-exp" => {
+            Some([0.30, 0.006, 1.20])
+        }
+        "deepseek-v4-pro" => Some([1.32, 0.044, 3.96]),
+        _ => None,
+    }
+}
+
+fn deepseek_peak_hour(timestamp: i64) -> bool {
+    chrono::DateTime::from_timestamp_millis(timestamp).is_some_and(|time| {
+        matches!(time.hour(), 1..=3 | 6..=9)
+            && !matches!(time.weekday(), Weekday::Sat | Weekday::Sun)
+            // Both windows fall on the same date in China (UTC+8).
+            && !CHINESE_WEEKDAY_HOLIDAYS.contains(&(time.year(), time.month(), time.day()))
+    })
+}
+
+/// What to multiply tokscale's cost by for the hour of the request. Its price sources hold either the
+/// peak or the off-peak rate, so the factor depends on which one the cost was made from. A cost that
+/// matches neither is left as it is.
+fn deepseek_factor(message: &UnifiedMessage) -> f64 {
+    if message.timestamp < DEEPSEEK_PEAK_PRICING_SINCE
+        || !matches!(
+            &*message.provider_id,
+            "deepseek" | "deepseek-account" | "deepseek-official"
+        )
+    {
+        return 1.0;
+    }
+    let Some([input, cache_read, output]) = deepseek_peak_rates(&message.model_id) else {
+        return 1.0;
+    };
+    let tokens = &message.tokens;
+    let at_peak = (tokens.input as f64 * input
+        + tokens.cache_read as f64 * cache_read
+        + (tokens.output + tokens.reasoning) as f64 * output)
+        / 1e6;
+    let is = |cost: f64| (message.cost - cost).abs() <= cost * 1e-6;
+    match deepseek_peak_hour(message.timestamp) {
+        false if is(at_peak) => 0.5,
+        true if is(at_peak / 2.0) => 2.0,
+        _ => 1.0,
+    }
+}
 
 /// tokscale reports any priority or fast request at 2x and any other tier at 1x.
 fn openai_factor(model: &str, tier: &str, timestamp: i64) -> f64 {
@@ -75,6 +142,7 @@ pub fn apply(messages: &mut [UnifiedMessage], fast: &HashSet<String>) {
         ) {
             continue;
         }
+        message.cost *= deepseek_factor(message);
         if &*message.client == "codex" && &*message.provider_id == "openai" {
             if let Some(tier) = &message.service_tier {
                 message.cost *= openai_factor(&message.model_id, tier, message.timestamp);
@@ -297,10 +365,90 @@ mod tests {
                 .timestamp_millis()
         };
         assert_eq!(AUTO_REVIEW_FREE_SINCE, millis("2026-10-06T00:00:00Z"));
+        assert_eq!(DEEPSEEK_PEAK_PRICING_SINCE, millis("2026-08-16T16:00:00Z"));
         assert_eq!(
             GPT_6_2_ULTRAFAST_PROMOTION_END,
             millis("2027-03-01T00:00:00-08:00")
         );
+    }
+
+    /// The cost after the rules of one million tokens of each kind, priced by tokscale at `rates`.
+    fn deepseek(model: &str, provider: &str, at: &str, rates: [f64; 3]) -> f64 {
+        let timestamp = chrono::DateTime::parse_from_rfc3339(at)
+            .unwrap()
+            .timestamp_millis();
+        let mut message = message("dsh", model, provider, timestamp);
+        message.tokens.input = 1_000_000;
+        message.tokens.cache_read = 1_000_000;
+        message.tokens.output = 1_000_000;
+        message.cost = rates.iter().sum();
+        cost(message, &[])
+    }
+
+    const FLASH_PEAK: [f64; 3] = [0.30, 0.006, 1.20];
+    const FLASH_OFF_PEAK: [f64; 3] = [0.15, 0.003, 0.60];
+
+    fn about(actual: f64, rates: [f64; 3]) -> bool {
+        (actual - rates.iter().sum::<f64>()).abs() < 1e-9
+    }
+
+    #[test]
+    fn deepseek_costs_half_outside_peak_hours() {
+        let flash = |at: &str| deepseek("deepseek-flash", "deepseek-account", at, FLASH_PEAK);
+        // Tuesday, November 24, 2026. Peak is 01:00-04:00 and 06:00-10:00 UTC.
+        for peak in ["01:00:00", "03:59:59", "06:00:00", "09:59:59"] {
+            assert!(
+                about(flash(&format!("2026-11-24T{peak}Z")), FLASH_PEAK),
+                "{peak}"
+            );
+        }
+        for off in ["00:59:59", "04:00:00", "05:59:59", "10:00:00", "23:00:00"] {
+            assert!(
+                about(flash(&format!("2026-11-24T{off}Z")), FLASH_OFF_PEAK),
+                "{off}"
+            );
+        }
+        // A Saturday, and the weekdays China has off for Mid-Autumn, National Day and 2027's Spring Festival.
+        for day in ["2026-11-28", "2026-09-25", "2026-10-07", "2027-02-12"] {
+            assert!(
+                about(flash(&format!("{day}T02:00:00Z")), FLASH_OFF_PEAK),
+                "{day}"
+            );
+        }
+        // A Saturday China works to make up for a holiday is still a weekend.
+        assert!(about(flash("2026-10-10T02:00:00Z"), FLASH_OFF_PEAK));
+        // The Thursday after the holiday is an ordinary day again.
+        assert!(about(flash("2026-10-08T02:00:00Z"), FLASH_PEAK));
+    }
+
+    #[test]
+    fn deepseek_peak_pricing_starts_when_it_was_announced_to() {
+        let flash = |at: &str| deepseek("deepseek-v4-flash", "deepseek", at, FLASH_PEAK);
+        assert!(about(flash("2026-08-16T15:59:59Z"), FLASH_PEAK));
+        assert!(about(flash("2026-08-16T16:00:00Z"), FLASH_OFF_PEAK));
+    }
+
+    #[test]
+    fn deepseek_costs_move_only_from_a_published_rate() {
+        let at = |time: &str, rates| deepseek("deepseek-flash", "deepseek-official", time, rates);
+        let (off, peak) = ("2026-11-24T12:00:00Z", "2026-11-24T02:00:00Z");
+        // A source that already holds the off-peak rate is not halved again, and is doubled at peak.
+        assert!(about(at(off, FLASH_OFF_PEAK), FLASH_OFF_PEAK));
+        assert!(about(at(peak, FLASH_OFF_PEAK), FLASH_PEAK));
+        // A cost made from some other rate is left alone.
+        assert!(about(at(off, [1.0, 1.0, 1.0]), [1.0, 1.0, 1.0]));
+        let pro = deepseek(
+            "deepseek-v4-pro",
+            "deepseek-account",
+            off,
+            [1.32, 0.044, 3.96],
+        );
+        assert!(about(pro, [0.66, 0.022, 1.98]));
+        // Another host's price of the same model has no peak hours.
+        assert!(about(
+            deepseek("deepseek-v4-pro", "openrouter", off, [1.32, 0.044, 3.96]),
+            [1.32, 0.044, 3.96]
+        ));
     }
 
     #[test]
